@@ -57,6 +57,7 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
   const x0 = cx * CHUNK, z0 = cz * CHUNK;
   const opaque = makeBucket();
   const cutout = makeBucket();
+  const flora = makeBucket();
   const water = makeBucket();
 
   const get = (x, y, z) => {
@@ -83,7 +84,7 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
         const bl = BLOCKS[id];
 
         if (bl.cross) {
-          pushCross(cutout, x, y, z, bl.faceTiles[0], x0, z0, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch));
+          pushCross(flora, x, y, z, bl.faceTiles[0], x0, z0, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch));
           continue;
         }
 
@@ -145,6 +146,7 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
   return {
     opaque: bucketToGeometry(opaque),
     cutout: bucketToGeometry(cutout),
+    flora: bucketToGeometry(flora),
     water: bucketToGeometry(water),
   };
 }

@@ -31,6 +31,7 @@ export class Lighting {
   constructor(world) {
     this.world = world;
     this.maps = new Map(); // chunk key -> { sky, br, bg, bb }
+    this.touched = new Set(); // chunks whose light arrays changed
     world.onBlockChanged = (x, y, z, newId, oldId) => this.onBlockChanged(x, y, z, newId, oldId);
   }
 
@@ -91,14 +92,18 @@ export class Lighting {
   }
 
   #setSky(x, y, z, v) {
-    const m = this.maps.get(this.key(x >> 4, z >> 4));
-    if (m) m.sky[this.#local(x, y, z, x >> 4, z >> 4)] = v;
+    const cx = x >> 4, cz = z >> 4;
+    this.touched.add(this.key(cx, cz));
+    const m = this.maps.get(this.key(cx, cz));
+    if (m) m.sky[this.#local(x, y, z, cx, cz)] = v;
   }
 
   #setBlockRGB(x, y, z, r, g, b) {
-    const m = this.maps.get(this.key(x >> 4, z >> 4));
+    const cx = x >> 4, cz = z >> 4;
+    this.touched.add(this.key(cx, cz));
+    const m = this.maps.get(this.key(cx, cz));
     if (!m) return;
-    const i = this.#local(x, y, z, x >> 4, z >> 4);
+    const i = this.#local(x, y, z, cx, cz);
     m.br[i] = r; m.bg[i] = g; m.bb[i] = b;
   }
 
@@ -223,6 +228,7 @@ export class Lighting {
   onBlockChanged(x, y, z, newId, oldId) {
     const world = this.world;
     const affected = new Set();
+    this.touched.clear();
 
     const mark = (px, py, pz) => {
       affected.add(world.key(px >> 4, pz >> 4));
@@ -255,6 +261,10 @@ export class Lighting {
     }
 
     for (const k of affected) world.dirtyChunks.add(k);
+    // light that spread into neighbor chunks must remesh those too, or the
+    // edited chunk renders bright while its stale neighbors stay dark
+    for (const k of this.touched) world.dirtyChunks.add(k);
+    this.touched.clear();
   }
 
   #recomputeSkyColumn(x, z, mark) {

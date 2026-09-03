@@ -146,14 +146,15 @@ export class ChunkManager {
     };
     this.materials = {
       opaque: mk({}),
-      cutout: mk({ defines: { CUTOUT: '', SWAY: '' }, side: THREE.DoubleSide, swayAmp: 1 }),
+      cutout: mk({ defines: { CUTOUT: '' }, side: THREE.DoubleSide }),
+      flora: mk({ defines: { CUTOUT: '', SWAY: '' }, side: THREE.DoubleSide, swayAmp: 1 }),
       water: mk({ transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0.8, defines: { WATER: '' }, waterAmp: 1 }),
     };
   }
 
   // live fancy-graphics toggle (sway + water animation amplitude)
   setFancy(on) {
-    for (const key of ['cutout', 'water']) {
+    for (const key of ['flora', 'water']) {
       const m = this.materials[key];
       m.uniforms.uSwayAmp.value = on ? 1 : 0;
       m.uniforms.uWaterAmp.value = on ? 1 : 0;
@@ -228,6 +229,7 @@ export class ChunkManager {
     };
     add(geos.opaque, this.materials.opaque, 0);
     add(geos.cutout, this.materials.cutout, 1);
+    add(geos.flora, this.materials.flora, 1);
     add(geos.water, this.materials.water, 2);
 
     this.entries.set(k, { meshes, cx, cz });
