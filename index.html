@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='9' fill='%236faa3e'/><rect y='9' width='16' height='7' fill='%23866043'/></svg>">
+<title>Voxelheim — browser voxel sandbox</title>
+<style>
+  :root {
+    --panel: rgba(16, 14, 24, 0.86);
+    --panel-border: rgba(255, 255, 255, 0.14);
+    --accent: #7ddb5a;
+    --text: #f2eee6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0a12; }
+  body {
+    font-family: "Courier New", ui-monospace, monospace;
+    color: var(--text);
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas.game { display: block; position: fixed; inset: 0; }
+
+  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10; }
+  .hidden { display: none !important; }
+
+  /* ---------- main menu ---------- */
+  #menu {
+    z-index: 40;
+    background:
+      radial-gradient(1200px 700px at 50% -10%, #35608c 0%, #1d2c4e 45%, #10142a 100%);
+    flex-direction: column;
+  }
+  #menu .stars { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  #menu .stars i {
+    position: absolute; width: 2px; height: 2px; background: #fff; opacity: .7;
+    animation: twinkle 3s infinite ease-in-out;
+  }
+  @keyframes twinkle { 0%,100% { opacity: .25; } 50% { opacity: .85; } }
+  #menu .title {
+    font-size: clamp(44px, 9vw, 92px);
+    letter-spacing: .12em;
+    font-weight: bold;
+    color: #eafbe0;
+    text-shadow: 0 4px 0 #2c5c1f, 0 8px 0 #173311, 0 12px 24px rgba(0,0,0,.6);
+    margin-bottom: 6px;
+  }
+  #menu .subtitle { opacity: .75; margin-bottom: 34px; font-size: 14px; letter-spacing: .28em; text-transform: uppercase; }
+  .panel {
+    background: var(--panel);
+    border: 2px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 22px 26px;
+    box-shadow: 0 18px 60px rgba(0,0,0,.55);
+    backdrop-filter: blur(6px);
+  }
+  #menu .panel { width: min(420px, 92vw); display: flex; flex-direction: column; gap: 12px; }
+  .field label { display: block; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; opacity: .65; margin-bottom: 5px; }
+  .field input {
+    width: 100%; padding: 10px 12px; font: inherit; font-size: 15px;
+    background: rgba(0,0,0,.45); color: var(--text);
+    border: 2px solid rgba(255,255,255,.16); border-radius: 6px; outline: none;
+  }
+  .field input:focus { border-color: var(--accent); }
+  button {
+    font: inherit; cursor: pointer; color: var(--text);
+    background: #3a3550; border: 2px solid rgba(255,255,255,.18);
+    border-bottom-width: 4px; border-radius: 8px;
+    padding: 11px 16px; font-size: 15px; letter-spacing: .04em;
+    transition: transform .05s, filter .1s;
+  }
+  button:hover { filter: brightness(1.18); }
+  button:active { transform: translateY(2px); border-bottom-width: 2px; }
+  button.primary { background: #3f7d2c; border-color: #63b74a; }
+  button.danger { background: #7d2c2c; border-color: #b74a4a; }
+  .btnrow { display: flex; gap: 10px; }
+  .btnrow button { flex: 1; }
+  #join-row { display: flex; gap: 10px; }
+  #join-row input { flex: 1; text-transform: uppercase; }
+  #saved-worlds { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  #saved-worlds:empty::before { content: "No saved worlds yet"; opacity: .45; font-size: 12px; text-align: center; }
+  .saved-world {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.1); border-radius: 6px;
+  }
+  .saved-world .code { font-weight: bold; color: var(--accent); letter-spacing: .1em; }
+  .saved-world .meta { flex: 1; font-size: 11px; opacity: .6; }
+  .saved-world button { padding: 5px 10px; font-size: 12px; }
+  .menu-error { color: #ff9d8a; font-size: 12px; min-height: 16px; text-align: center; }
+  #menu .footnote { margin-top: 18px; font-size: 11px; opacity: .5; text-align: center; line-height: 1.7; }
+
+  /* ---------- connecting overlay ---------- */
+  #connecting { z-index: 35; background: rgba(8, 7, 14, .82); flex-direction: column; gap: 14px; }
+  .spinner {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 5px solid rgba(255,255,255,.15); border-top-color: var(--accent);
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #connecting .status { font-size: 13px; opacity: .8; letter-spacing: .08em; }
+
+  /* ---------- HUD ---------- */
+  #hud { z-index: 20; pointer-events: none; }
+  #crosshair {
+    position: absolute; left: 50%; top: 50%; width: 22px; height: 22px;
+    transform: translate(-50%, -50%); opacity: .85;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ""; position: absolute; background: #fff; mix-blend-mode: difference;
+  }
+  #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
+  #crosshair::after { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
+
+  #hotbar {
+    position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 4px; padding: 4px;
+    background: rgba(10, 9, 16, .55); border-radius: 8px; border: 2px solid rgba(255,255,255,.12);
+  }
+  .slot {
+    width: 52px; height: 52px; border-radius: 5px;
+    background: rgba(0,0,0,.42); border: 2px solid rgba(255,255,255,.14);
+    display: flex; align-items: center; justify-content: center; position: relative;
+  }
+  .slot img { width: 40px; height: 40px; image-rendering: pixelated; }
+  .slot .key { position: absolute; top: 1px; left: 4px; font-size: 10px; opacity: .55; }
+  .slot.selected { border-color: #fff; background: rgba(255,255,255,.16); box-shadow: 0 0 10px rgba(255,255,255,.35); }
+  .slot .label {
+    position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
+    white-space: nowrap; font-size: 11px; text-shadow: 0 2px 3px #000; opacity: 0; transition: opacity .2s;
+  }
+  .slot.selected .label { opacity: .95; }
+
+  #block-name {
+    position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
+    font-size: 14px; text-shadow: 0 2px 4px #000; opacity: 0; transition: opacity .4s;
+  }
+
+  #room-tag {
+    position: absolute; top: 12px; right: 14px; text-align: right;
+    background: rgba(10,9,16,.5); padding: 8px 12px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,.1); pointer-events: auto;
+  }
+  #room-tag .rt-label { font-size: 10px; letter-spacing: .2em; opacity: .55; text-transform: uppercase; }
+  #room-tag .rt-code { font-size: 20px; letter-spacing: .22em; color: var(--accent); font-weight: bold; }
+  #room-tag .rt-role { font-size: 10px; opacity: .55; }
+
+  #debug {
+    position: absolute; top: 12px; left: 14px; font-size: 12px; line-height: 1.55;
+    text-shadow: 0 1px 2px #000; background: rgba(10,9,16,.4); padding: 6px 10px; border-radius: 6px;
+  }
+  #debug .warn { color: #ffd27d; }
+
+  #chat {
+    position: absolute; left: 14px; bottom: 90px; width: min(480px, 70vw);
+    display: flex; flex-direction: column; gap: 3px; font-size: 13px;
+  }
+  #chat .msg {
+    text-shadow: 0 1px 2px #000; background: rgba(10,9,16,.45);
+    padding: 3px 8px; border-radius: 4px; width: fit-content; max-width: 100%;
+    word-wrap: break-word; transition: opacity 1s;
+  }
+  #chat .msg .who { font-weight: bold; }
+  #chat .msg.system { color: #ffd27d; font-style: italic; }
+  #chat-input-wrap {
+    position: absolute; left: 14px; bottom: 56px; width: min(480px, 70vw);
+    pointer-events: auto;
+  }
+  #chat-input {
+    width: 100%; font: inherit; font-size: 13px; padding: 7px 10px;
+    background: rgba(10,9,16,.75); color: var(--text);
+    border: 2px solid rgba(255,255,255,.25); border-radius: 6px; outline: none;
+  }
+
+  #player-list {
+    position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
+    min-width: 260px; padding: 12px 18px;
+    background: rgba(10,9,16,.68); border: 2px solid rgba(255,255,255,.14); border-radius: 10px;
+    font-size: 14px;
+  }
+  #player-list h3 { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; opacity: .6; margin-bottom: 8px; text-align: center; }
+  #player-list .pl-row { display: flex; align-items: center; gap: 9px; padding: 3px 0; }
+  #player-list .pl-dot { width: 11px; height: 11px; border-radius: 3px; }
+  #player-list .pl-you { margin-left: auto; font-size: 10px; opacity: .5; letter-spacing: .15em; }
+
+  #hint {
+    position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; opacity: .6; text-shadow: 0 1px 2px #000;
+    background: rgba(10,9,16,.4); padding: 5px 12px; border-radius: 6px;
+  }
+
+  /* ---------- pause ---------- */
+  #pause { z-index: 30; background: rgba(8, 7, 14, .6); flex-direction: column; }
+  #pause .panel { width: min(360px, 92vw); display: flex; flex-direction: column; gap: 10px; }
+  #pause h2 { text-align: center; letter-spacing: .25em; margin-bottom: 6px; }
+  #pause .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+  #pause select {
+    font: inherit; padding: 5px 8px; background: #241f36; color: var(--text);
+    border: 2px solid rgba(255,255,255,.18); border-radius: 6px; outline: none;
+  }
+
+  /* ---------- block picker ---------- */
+  #picker { z-index: 30; background: rgba(8, 7, 14, .55); flex-direction: column; }
+  #picker .panel { width: min(680px, 94vw); max-height: 86vh; overflow-y: auto; }
+  #picker h2 { font-size: 15px; letter-spacing: .2em; text-transform: uppercase; margin-bottom: 4px; }
+  #picker .tip { font-size: 11px; opacity: .55; margin-bottom: 14px; }
+  .picker-group { margin-bottom: 12px; }
+  .picker-group h4 { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; opacity: .55; margin-bottom: 6px; }
+  .picker-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pick {
+    width: 52px; height: 52px; border-radius: 6px; cursor: pointer;
+    background: rgba(0,0,0,.4); border: 2px solid rgba(255,255,255,.12);
+    display: flex; align-items: center; justify-content: center; position: relative;
+  }
+  .pick:hover { border-color: #fff; background: rgba(255,255,255,.12); }
+  .pick img { width: 40px; height: 40px; image-rendering: pixelated; }
+  .pick .tip-label {
+    position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; white-space: nowrap; opacity: 0; pointer-events: none;
+  }
+  .pick:hover .tip-label { opacity: 1; text-shadow: 0 1px 2px #000; }
+
+  /* toasts */
+  #toasts { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .toast {
+    background: rgba(16,14,24,.92); border: 2px solid rgba(255,255,255,.2);
+    padding: 8px 18px; border-radius: 8px; font-size: 13px;
+    animation: toastin .18s ease-out;
+  }
+  @keyframes toastin { from { transform: translateY(-8px); opacity: 0; } }
+
+  #mobile-warn { z-index: 60; background: #14111f; flex-direction: column; gap: 10px; padding: 30px; text-align: center; }
+</style>
+</head>
+<body>
+
+<div id="menu" class="overlay">
+  <div class="stars" id="menu-stars"></div>
+  <div class="title">VOXELHEIM</div>
+  <div class="subtitle">a tiny open block world</div>
+  <div class="panel">
+    <div class="field">
+      <label for="name-input">Your name</label>
+      <input id="name-input" maxlength="16" placeholder="Steve? No — be original" autocomplete="off">
+    </div>
+    <button id="btn-create" class="primary">Create a new world</button>
+    <div class="btnrow" id="join-row">
+      <input id="code-input" maxlength="6" placeholder="CODE" autocomplete="off">
+      <button id="btn-join">Join</button>
+    </div>
+    <div id="saved-wrap" class="hidden">
+      <div class="field" style="margin-top:6px"><label>Your saved worlds (host again to resume)</label></div>
+      <div id="saved-worlds"></div>
+    </div>
+    <div class="menu-error" id="menu-error"></div>
+  </div>
+  <div class="footnote">
+    Works best on desktop Chrome/Edge/Firefox.<br>
+    All textures &amp; sounds generated by code — 100% original.
+  </div>
+</div>
+
+<div id="connecting" class="overlay hidden">
+  <div class="spinner"></div>
+  <div class="status" id="connecting-status">Contacting the void…</div>
+  <button id="btn-cancel-connect">Cancel</button>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <div class="panel">
+    <h2>PAUSED</h2>
+    <button id="btn-resume" class="primary">Back to the world</button>
+    <div class="row"><span>Sound</span><button id="btn-sound" style="padding:6px 14px;font-size:13px">On</button></div>
+    <div class="row">
+      <span>Render distance</span>
+      <select id="render-dist">
+        <option value="3">Short (fast)</option>
+        <option value="4" selected>Normal</option>
+        <option value="5">Far</option>
+        <option value="6">Very far (slow)</option>
+      </select>
+    </div>
+    <div class="row" id="room-row"><span>Room code</span><span id="pause-code" style="letter-spacing:.15em;color:var(--accent);font-weight:bold"></span></div>
+    <button id="btn-quit" class="danger">Save &amp; quit</button>
+  </div>
+</div>
+
+<div id="picker" class="overlay hidden">
+  <div class="panel">
+    <h2>Block palette</h2>
+    <div class="tip">Click a block to put it in your selected hotbar slot — E or Esc to close</div>
+    <div id="picker-groups"></div>
+  </div>
+</div>
+
+<div id="hud" class="overlay hidden">
+  <div id="crosshair"></div>
+  <div id="debug" class="hidden"></div>
+  <div id="room-tag">
+    <div class="rt-label">room code</div>
+    <div class="rt-code" id="hud-code"></div>
+    <div class="rt-role" id="hud-role"></div>
+  </div>
+  <div id="hotbar"></div>
+  <div id="block-name"></div>
+  <div id="hint" class="hidden">click to play — WASD move · E blocks · T chat · double-space fly</div>
+  <div id="chat"></div>
+  <div id="chat-input-wrap" class="hidden">
+    <input id="chat-input" maxlength="120" placeholder="say something… (Enter to send, Esc to cancel)" autocomplete="off">
+  </div>
+  <div id="player-list" class="hidden"></div>
+</div>
+
+<div id="mobile-warn" class="overlay hidden">
+  <div class="title" style="font-size:34px">VOXELHEIM</div>
+  <p>This world needs a keyboard &amp; mouse.<br>Please open it on a desktop browser.</p>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+  // early error capture — surfaces module load/runtime errors for debugging
+  window.__errs = [];
+  window.addEventListener('error', (e) => window.__errs.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno + '\nSTACK: ' + (e.error && e.error.stack ? e.error.stack : '(none)')));
+  window.addEventListener('unhandledrejection', (e) => window.__errs.push('promise: ' + String(e.reason)));
+</script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
