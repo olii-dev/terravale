@@ -3,316 +3,397 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='9' fill='%236faa3e'/><rect y='9' width='16' height='7' fill='%23866043'/></svg>">
-<title>Voxelheim — browser voxel sandbox</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='7' fill='%236faa3e'/><rect y='7' width='16' height='2' fill='%23866043'/><rect y='9' width='16' height='7' fill='%233e7a8c'/></svg>">
+<title>Terravale — a block world survival game</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=VT323&display=swap" rel="stylesheet">
 <style>
   :root {
-    --panel: rgba(16, 14, 24, 0.86);
-    --panel-border: rgba(255, 255, 255, 0.14);
+    --panel: #c6c6c6;
+    --panel-dark: #555555;
+    --slot: #8b8b8b;
+    --slot-border-light: #373737;
+    --slot-border-dark: #ffffff;
+    --text-dark: #3f3f3f;
     --accent: #7ddb5a;
-    --text: #f2eee6;
+    --danger: #ff5555;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0a12; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
   body {
-    font-family: "Courier New", ui-monospace, monospace;
-    color: var(--text);
+    font-family: 'VT323', 'Courier New', monospace;
+    font-size: 20px;
+    color: #fff;
     user-select: none;
     -webkit-user-select: none;
   }
   canvas.game { display: block; position: fixed; inset: 0; }
+  body.blur-behind canvas.game { filter: blur(3px) brightness(0.75) saturate(1.1); }
 
   .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10; }
   .hidden { display: none !important; }
 
-  /* ---------- main menu ---------- */
-  #menu {
-    z-index: 40;
-    background:
-      radial-gradient(1200px 700px at 50% -10%, #35608c 0%, #1d2c4e 45%, #10142a 100%);
-    flex-direction: column;
-  }
-  #menu .stars { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-  #menu .stars i {
-    position: absolute; width: 2px; height: 2px; background: #fff; opacity: .7;
-    animation: twinkle 3s infinite ease-in-out;
-  }
-  @keyframes twinkle { 0%,100% { opacity: .25; } 50% { opacity: .85; } }
-  #menu .title {
-    font-size: clamp(44px, 9vw, 92px);
-    letter-spacing: .12em;
-    font-weight: bold;
-    color: #eafbe0;
-    text-shadow: 0 4px 0 #2c5c1f, 0 8px 0 #173311, 0 12px 24px rgba(0,0,0,.6);
-    margin-bottom: 6px;
-  }
-  #menu .subtitle { opacity: .75; margin-bottom: 34px; font-size: 14px; letter-spacing: .28em; text-transform: uppercase; }
-  .panel {
-    background: var(--panel);
-    border: 2px solid var(--panel-border);
-    border-radius: 10px;
-    padding: 22px 26px;
-    box-shadow: 0 18px 60px rgba(0,0,0,.55);
-    backdrop-filter: blur(6px);
-  }
-  #menu .panel { width: min(420px, 92vw); display: flex; flex-direction: column; gap: 12px; }
-  .field label { display: block; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; opacity: .65; margin-bottom: 5px; }
-  .field input {
-    width: 100%; padding: 10px 12px; font: inherit; font-size: 15px;
-    background: rgba(0,0,0,.45); color: var(--text);
-    border: 2px solid rgba(255,255,255,.16); border-radius: 6px; outline: none;
-  }
-  .field input:focus { border-color: var(--accent); }
-  button {
-    font: inherit; cursor: pointer; color: var(--text);
-    background: #3a3550; border: 2px solid rgba(255,255,255,.18);
-    border-bottom-width: 4px; border-radius: 8px;
-    padding: 11px 16px; font-size: 15px; letter-spacing: .04em;
-    transition: transform .05s, filter .1s;
-  }
-  button:hover { filter: brightness(1.18); }
-  button:active { transform: translateY(2px); border-bottom-width: 2px; }
-  button.primary { background: #3f7d2c; border-color: #63b74a; }
-  button.danger { background: #7d2c2c; border-color: #b74a4a; }
-  .btnrow { display: flex; gap: 10px; }
-  .btnrow button { flex: 1; }
-  #join-row { display: flex; gap: 10px; }
-  #join-row input { flex: 1; text-transform: uppercase; }
-  #saved-worlds { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-  #saved-worlds:empty::before { content: "No saved worlds yet"; opacity: .45; font-size: 12px; text-align: center; }
-  .saved-world {
-    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-    background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.1); border-radius: 6px;
-  }
-  .saved-world .code { font-weight: bold; color: var(--accent); letter-spacing: .1em; }
-  .saved-world .meta { flex: 1; font-size: 11px; opacity: .6; }
-  .saved-world button { padding: 5px 10px; font-size: 12px; }
-  .menu-error { color: #ff9d8a; font-size: 12px; min-height: 16px; text-align: center; }
-  #menu .footnote { margin-top: 18px; font-size: 11px; opacity: .5; text-align: center; line-height: 1.7; }
+  h1, h2, h3, .logo { font-family: 'Silkscreen', monospace; }
 
-  /* ---------- connecting overlay ---------- */
-  #connecting { z-index: 35; background: rgba(8, 7, 14, .82); flex-direction: column; gap: 14px; }
+  /* ---------- MC-style widgets ---------- */
+  .mcbtn {
+    font-family: 'VT323', monospace;
+    font-size: 22px;
+    color: #fff;
+    text-shadow: 2px 2px 0 rgba(0,0,0,0.6);
+    background: linear-gradient(#7c7c7c, #6d6d6d 45%, #5f5f5f);
+    border: 2px solid #000;
+    box-shadow: inset 2px 2px 0 #9c9c9c, inset -2px -2px 0 #464646;
+    padding: 8px 14px;
+    min-width: 220px;
+    cursor: pointer;
+    image-rendering: pixelated;
+  }
+  .mcbtn:hover { background: linear-gradient(#8a94c4, #7381b8 45%, #5f6ca4); box-shadow: inset 2px 2px 0 #aab4e0, inset -2px -2px 0 #4a5484; }
+  .mcbtn:active { transform: translateY(1px); }
+  .mcbtn.small { min-width: 0; font-size: 18px; padding: 5px 10px; }
+  .mcbtn.primary { background: linear-gradient(#6fae4c, #5c9440 45%, #4a7a32); box-shadow: inset 2px 2px 0 #93cd74, inset -2px -2px 0 #365c22; }
+  .mcbtn.danger { background: linear-gradient(#b04c4c, #944040 45%, #7a3232); box-shadow: inset 2px 2px 0 #cd7474, inset -2px -2px 0 #5c2222; }
+  .mcbtn.on { background: linear-gradient(#6fae4c, #5c9440 45%, #4a7a32); }
+
+  .mcpanel {
+    background: var(--panel);
+    border: 2px solid #000;
+    box-shadow: inset 3px 3px 0 #ffffff, inset -3px -3px 0 #555555;
+    padding: 14px 16px;
+    color: var(--text-dark);
+  }
+  .mcinput {
+    font-family: 'VT323', monospace;
+    font-size: 20px;
+    color: #fff;
+    background: #000;
+    border: 2px solid #a0a0a0;
+    padding: 7px 10px;
+    outline: none;
+    min-width: 0;
+  }
+  .mcinput:focus { border-color: #fff; }
+
+  .mcslider { -webkit-appearance: none; appearance: none; width: 220px; height: 24px; background: #000; border: 2px solid #a0a0a0; cursor: pointer; }
+  .mcslider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 20px; background: linear-gradient(#8a8a8a,#6a6a6a); border: 1px solid #000; }
+  .mcslider::-moz-range-thumb { width: 16px; height: 20px; background: #7a7a7a; border: 1px solid #000; border-radius: 0; }
+
+  .slotgrid { display: grid; gap: 4px; }
+  .islot {
+    width: 44px; height: 44px;
+    background: var(--slot);
+    border: 2px solid;
+    border-color: var(--slot-border-dark) var(--slot-border-light) var(--slot-border-light) var(--slot-border-dark);
+    position: relative;
+    cursor: pointer;
+  }
+  .islot:hover::after { content: ""; position: absolute; inset: 0; background: rgba(255,255,255,0.45); }
+  .islot img { width: 36px; height: 36px; margin: 3px; image-rendering: pixelated; pointer-events: none; }
+  .islot .count {
+    position: absolute; right: 2px; bottom: 0px;
+    font-family: 'VT323', monospace; font-size: 19px; color: #fff;
+    text-shadow: 2px 2px 0 #3f3f3f; pointer-events: none;
+  }
+  .islot .durwrap { position: absolute; left: 4px; right: 4px; bottom: 3px; height: 3px; background: #000; pointer-events: none; }
+  .islot .durbar { height: 100%; background: #4cd44c; }
+
+  /* ---------- title screen ---------- */
+  #title { z-index: 40; flex-direction: column; background: rgba(0,0,0,0.25); }
+  .logo {
+    font-size: clamp(48px, 9vw, 96px);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #e8e4d8;
+    text-shadow: 0 5px 0 #444036, 0 10px 0 #26221c, 0 14px 22px rgba(0,0,0,0.7);
+    position: relative;
+  }
+  #splash {
+    position: absolute; right: -30px; bottom: -6px;
+    color: #ffff00; font-family: 'Silkscreen', monospace; font-size: 15px;
+    transform: rotate(-14deg);
+    text-shadow: 2px 2px 0 #3f3f00;
+    animation: splashpulse 0.6s infinite alternate ease-in-out;
+    pointer-events: none; white-space: nowrap;
+  }
+  @keyframes splashpulse { from { transform: rotate(-14deg) scale(1); } to { transform: rotate(-14deg) scale(1.08); } }
+  #title-stack { display: flex; flex-direction: column; gap: 9px; margin-top: 48px; align-items: center; }
+  #join-row { display: flex; gap: 8px; }
+  #join-row .mcinput { width: 130px; text-transform: uppercase; }
+  .panel-note { font-size: 15px; opacity: .55; }
+  #create-panel { display: flex; flex-direction: column; gap: 9px; align-items: center; }
+  #mode-row { display: flex; gap: 8px; }
+  #seed-input { width: 260px; }
+  #saved-wrap { margin-top: 10px; width: min(430px, 90vw); }
+  #saved-worlds { max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+  .saved-world {
+    display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+    background: rgba(0,0,0,0.55); border: 2px solid rgba(255,255,255,0.2);
+  }
+  .saved-world .code { font-weight: bold; color: var(--accent); letter-spacing: 0.1em; font-family: 'Silkscreen', monospace; font-size: 14px; }
+  .saved-world .meta { flex: 1; font-size: 15px; opacity: 0.6; }
+  .menu-error { color: #ff9d8a; font-size: 17px; min-height: 20px; text-align: center; text-shadow: 1px 1px 0 #000; }
+  #title .footnote { margin-top: 22px; font-size: 15px; opacity: 0.5; text-align: center; line-height: 1.6; text-shadow: 1px 1px 0 #000; }
+
+  /* ---------- options ---------- */
+  #options { z-index: 42; flex-direction: column; background: rgba(0,0,0,0.6); }
+  #options h2 { font-size: 22px; margin-bottom: 12px; text-shadow: 2px 2px 0 #000; }
+  #options-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; justify-content: center; }
+  #options-body {
+    display: flex; flex-direction: column; gap: 7px;
+    max-height: 60vh; overflow-y: auto; padding: 4px;
+  }
+  .opt-row { display: flex; align-items: center; gap: 12px; justify-content: center; }
+  .opt-row .mcbtn { min-width: 300px; text-align: center; }
+  .opt-row label { min-width: 170px; text-align: right; font-size: 19px; text-shadow: 1px 1px 0 #000; }
+  .opt-row .opt-val { min-width: 54px; font-size: 19px; text-shadow: 1px 1px 0 #000; }
+  #btn-options-back { margin-top: 14px; }
+  .binding .mcbtn { min-width: 160px; }
+
+  /* ---------- connecting ---------- */
+  #connecting { z-index: 35; background: rgba(0,0,0,0.72); flex-direction: column; gap: 16px; }
   .spinner {
     width: 44px; height: 44px; border-radius: 50%;
-    border: 5px solid rgba(255,255,255,.15); border-top-color: var(--accent);
+    border: 5px solid rgba(255,255,255,0.15); border-top-color: var(--accent);
     animation: spin 1s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  #connecting .status { font-size: 13px; opacity: .8; letter-spacing: .08em; }
+  #connecting .status { font-size: 19px; opacity: 0.85; }
 
   /* ---------- HUD ---------- */
   #hud { z-index: 20; pointer-events: none; }
   #crosshair {
-    position: absolute; left: 50%; top: 50%; width: 22px; height: 22px;
-    transform: translate(-50%, -50%); opacity: .85;
+    position: absolute; left: 50%; top: 50%; width: 20px; height: 20px;
+    transform: translate(-50%, -50%); opacity: 0.9; mix-blend-mode: difference;
   }
-  #crosshair::before, #crosshair::after {
-    content: ""; position: absolute; background: #fff; mix-blend-mode: difference;
-  }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff; }
   #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
   #crosshair::after { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
 
-  #hotbar {
-    position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
-    display: flex; gap: 4px; padding: 4px;
-    background: rgba(10, 9, 16, .55); border-radius: 8px; border: 2px solid rgba(255,255,255,.12);
-  }
-  .slot {
-    width: 52px; height: 52px; border-radius: 5px;
-    background: rgba(0,0,0,.42); border: 2px solid rgba(255,255,255,.14);
-    display: flex; align-items: center; justify-content: center; position: relative;
-  }
-  .slot img { width: 40px; height: 40px; image-rendering: pixelated; }
-  .slot .key { position: absolute; top: 1px; left: 4px; font-size: 10px; opacity: .55; }
-  .slot.selected { border-color: #fff; background: rgba(255,255,255,.16); box-shadow: 0 0 10px rgba(255,255,255,.35); }
-  .slot .label {
-    position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
-    white-space: nowrap; font-size: 11px; text-shadow: 0 2px 3px #000; opacity: 0; transition: opacity .2s;
-  }
-  .slot.selected .label { opacity: .95; }
-
-  #block-name {
-    position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
-    font-size: 14px; text-shadow: 0 2px 4px #000; opacity: 0; transition: opacity .4s;
-  }
-
-  #room-tag {
-    position: absolute; top: 12px; right: 14px; text-align: right;
-    background: rgba(10,9,16,.5); padding: 8px 12px; border-radius: 8px;
-    border: 1px solid rgba(255,255,255,.1); pointer-events: auto;
-  }
-  #room-tag .rt-label { font-size: 10px; letter-spacing: .2em; opacity: .55; text-transform: uppercase; }
-  #room-tag .rt-code { font-size: 20px; letter-spacing: .22em; color: var(--accent); font-weight: bold; }
-  #room-tag .rt-role { font-size: 10px; opacity: .55; }
-
   #debug {
-    position: absolute; top: 12px; left: 14px; font-size: 12px; line-height: 1.55;
-    text-shadow: 0 1px 2px #000; background: rgba(10,9,16,.4); padding: 6px 10px; border-radius: 6px;
+    position: absolute; top: 10px; left: 10px; font-size: 17px; line-height: 1.35;
+    text-shadow: 1px 1px 2px #000; background: rgba(0,0,0,0.35); padding: 5px 9px;
   }
-  #debug .warn { color: #ffd27d; }
-
-  #chat {
-    position: absolute; left: 14px; bottom: 90px; width: min(480px, 70vw);
-    display: flex; flex-direction: column; gap: 3px; font-size: 13px;
-  }
-  #chat .msg {
-    text-shadow: 0 1px 2px #000; background: rgba(10,9,16,.45);
-    padding: 3px 8px; border-radius: 4px; width: fit-content; max-width: 100%;
-    word-wrap: break-word; transition: opacity 1s;
-  }
-  #chat .msg .who { font-weight: bold; }
-  #chat .msg.system { color: #ffd27d; font-style: italic; }
-  #chat-input-wrap {
-    position: absolute; left: 14px; bottom: 56px; width: min(480px, 70vw);
+  #room-tag {
+    position: absolute; top: 10px; right: 12px; text-align: right;
+    background: rgba(0,0,0,0.45); padding: 7px 11px; border: 1px solid rgba(255,255,255,0.12);
     pointer-events: auto;
   }
-  #chat-input {
-    width: 100%; font: inherit; font-size: 13px; padding: 7px 10px;
-    background: rgba(10,9,16,.75); color: var(--text);
-    border: 2px solid rgba(255,255,255,.25); border-radius: 6px; outline: none;
-  }
+  #room-tag .rt-label { font-size: 12px; letter-spacing: 0.2em; opacity: 0.55; font-family: 'Silkscreen', monospace; }
+  #room-tag .rt-code { font-size: 21px; letter-spacing: 0.22em; color: var(--accent); font-family: 'Silkscreen', monospace; }
+  #room-tag .rt-role { font-size: 13px; opacity: 0.55; }
 
-  #player-list {
-    position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
-    min-width: 260px; padding: 12px 18px;
-    background: rgba(10,9,16,.68); border: 2px solid rgba(255,255,255,.14); border-radius: 10px;
-    font-size: 14px;
+  #stats {
+    position: absolute; bottom: 78px; left: 50%; transform: translateX(-50%);
+    width: 406px; display: flex; justify-content: space-between; align-items: flex-end;
   }
-  #player-list h3 { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; opacity: .6; margin-bottom: 8px; text-align: center; }
-  #player-list .pl-row { display: flex; align-items: center; gap: 9px; padding: 3px 0; }
-  #player-list .pl-dot { width: 11px; height: 11px; border-radius: 3px; }
-  #player-list .pl-you { margin-left: auto; font-size: 10px; opacity: .5; letter-spacing: .15em; }
+  #hearts, #hunger, #air { display: flex; gap: 1px; }
+  #hunger { flex-direction: row-reverse; }
+  #air { position: absolute; right: 0; bottom: 26px; flex-direction: row-reverse; }
+  #hearts img, #hunger img, #air img { width: 18px; height: 18px; image-rendering: pixelated; }
+
+  #hotbar {
+    position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 0; padding: 2px;
+    background: rgba(0,0,0,0.45); border: 2px solid rgba(255,255,255,0.25);
+  }
+  .hslot {
+    width: 46px; height: 46px; position: relative;
+    background: rgba(0,0,0,0.25);
+    border: 2px solid rgba(140,140,140,0.8);
+    outline: 1px solid rgba(0,0,0,0.6);
+  }
+  .hslot img { width: 34px; height: 34px; margin: 4px; image-rendering: pixelated; pointer-events: none; }
+  .hslot .count {
+    position: absolute; right: 3px; bottom: -1px; font-size: 19px;
+    color: #fff; text-shadow: 2px 2px 0 #3f3f3f; pointer-events: none;
+  }
+  .hslot .durwrap { position: absolute; left: 5px; right: 5px; bottom: 4px; height: 3px; background: #000; }
+  .hslot .durbar { height: 100%; background: #4cd44c; }
+  .hslot.selected { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.85); z-index: 2; }
+
+  #held-name {
+    position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%);
+    font-size: 20px; text-shadow: 2px 2px 0 #000; opacity: 0; transition: opacity 0.4s;
+  }
 
   #hint {
-    position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
-    font-size: 12px; opacity: .6; text-shadow: 0 1px 2px #000;
-    background: rgba(10,9,16,.4); padding: 5px 12px; border-radius: 6px;
+    position: absolute; bottom: 136px; left: 50%; transform: translateX(-50%);
+    font-size: 15px; opacity: 0.65; text-shadow: 1px 1px 2px #000;
+    background: rgba(0,0,0,0.4); padding: 4px 12px;
+  }
+
+  #chat { position: absolute; left: 10px; bottom: 88px; width: min(520px, 72vw); display: flex; flex-direction: column; gap: 2px; font-size: 19px; }
+  #chat .msg {
+    text-shadow: 1px 1px 2px #000; background: rgba(0,0,0,0.42);
+    padding: 2px 7px; width: fit-content; max-width: 100%; word-wrap: break-word; transition: opacity 1s;
+  }
+  #chat .msg .who { font-weight: normal; color: #ffd94c; }
+  #chat .msg.system { color: #ffd27d; }
+  #chat-input-wrap { position: absolute; left: 10px; bottom: 54px; width: min(520px, 72vw); pointer-events: auto; }
+  #chat-input { width: 100%; font-family: 'VT323', monospace; font-size: 19px; padding: 5px 9px; background: rgba(0,0,0,0.7); color: #fff; border: 1px solid rgba(255,255,255,0.4); outline: none; }
+
+  #player-list {
+    position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
+    min-width: 270px; padding: 10px 16px;
+    background: rgba(0,0,0,0.62); border: 2px solid rgba(255,255,255,0.25);
+    font-size: 19px;
+  }
+  #player-list h3 { font-size: 12px; letter-spacing: 0.2em; opacity: 0.6; margin-bottom: 6px; text-align: center; }
+  #player-list .pl-row { display: flex; align-items: center; gap: 9px; padding: 2px 0; }
+  #player-list .pl-dot { width: 10px; height: 10px; }
+  #player-list .pl-you { margin-left: auto; font-size: 12px; opacity: 0.5; letter-spacing: 0.15em; font-family: 'Silkscreen', monospace; }
+
+  /* hurt vignette */
+  #hurt-overlay {
+    position: absolute; inset: 0; pointer-events: none; z-index: 21;
+    box-shadow: inset 0 0 120px 40px rgba(255, 0, 0, 0.55);
+    opacity: 0; transition: opacity 0.35s;
   }
 
   /* ---------- pause ---------- */
-  #pause { z-index: 30; background: rgba(8, 7, 14, .6); flex-direction: column; }
-  #pause .panel { width: min(360px, 92vw); display: flex; flex-direction: column; gap: 10px; }
-  #pause h2 { text-align: center; letter-spacing: .25em; margin-bottom: 6px; }
-  #pause .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
-  #pause select {
-    font: inherit; padding: 5px 8px; background: #241f36; color: var(--text);
-    border: 2px solid rgba(255,255,255,.18); border-radius: 6px; outline: none;
-  }
+  #pause { z-index: 30; background: rgba(0,0,0,0.55); flex-direction: column; gap: 9px; }
+  #pause h2 { font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 8px; }
+  #pause .pause-meta { font-size: 16px; opacity: 0.6; margin-top: 8px; }
 
-  /* ---------- block picker ---------- */
-  #picker { z-index: 30; background: rgba(8, 7, 14, .55); flex-direction: column; }
-  #picker .panel { width: min(680px, 94vw); max-height: 86vh; overflow-y: auto; }
-  #picker h2 { font-size: 15px; letter-spacing: .2em; text-transform: uppercase; margin-bottom: 4px; }
-  #picker .tip { font-size: 11px; opacity: .55; margin-bottom: 14px; }
-  .picker-group { margin-bottom: 12px; }
-  .picker-group h4 { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; opacity: .55; margin-bottom: 6px; }
-  .picker-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-  .pick {
-    width: 52px; height: 52px; border-radius: 6px; cursor: pointer;
-    background: rgba(0,0,0,.4); border: 2px solid rgba(255,255,255,.12);
-    display: flex; align-items: center; justify-content: center; position: relative;
+  /* ---------- death ---------- */
+  #death { z-index: 44; background: rgba(120, 0, 0, 0.45); flex-direction: column; gap: 12px; }
+  #death h1 { font-size: clamp(40px, 7vw, 72px); text-shadow: 3px 3px 0 #300; color: #ffdddd; }
+  #death .sub { font-size: 21px; text-shadow: 2px 2px 0 #300; margin-bottom: 14px; }
+
+  /* ---------- container screen ---------- */
+  #screen { z-index: 32; align-items: center; justify-content: center; }
+  #screen-shade { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+  #screen-panel { position: relative; display: flex; flex-direction: column; gap: 10px; max-height: 92vh; }
+  #screen-title { font-family: 'Silkscreen', monospace; font-size: 13px; color: var(--text-dark); }
+  #container-area { display: flex; align-items: center; gap: 10px; }
+  .arrow-icon { width: 36px; height: 24px; image-rendering: pixelated; }
+  #furnace-col { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  #player-inv-label { font-family: 'Silkscreen', monospace; font-size: 12px; color: var(--text-dark); }
+  #cursor-stack {
+    position: fixed; width: 40px; height: 40px; pointer-events: none; z-index: 60;
+    display: none;
   }
-  .pick:hover { border-color: #fff; background: rgba(255,255,255,.12); }
-  .pick img { width: 40px; height: 40px; image-rendering: pixelated; }
-  .pick .tip-label {
-    position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
-    font-size: 10px; white-space: nowrap; opacity: 0; pointer-events: none;
+  #cursor-stack img { width: 36px; height: 36px; image-rendering: pixelated; }
+  #cursor-stack .count { position: absolute; right: 0; bottom: -4px; font-size: 19px; color: #fff; text-shadow: 2px 2px 0 #3f3f3f; }
+  #tooltip {
+    position: fixed; z-index: 61; pointer-events: none; display: none;
+    background: rgba(16, 4, 24, 0.92); border: 2px solid #4c1d78;
+    padding: 3px 9px; font-size: 19px; color: #fff; white-space: nowrap;
   }
-  .pick:hover .tip-label { opacity: 1; text-shadow: 0 1px 2px #000; }
 
   /* toasts */
-  #toasts { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; align-items: center; }
-  .toast {
-    background: rgba(16,14,24,.92); border: 2px solid rgba(255,255,255,.2);
-    padding: 8px 18px; border-radius: 8px; font-size: 13px;
-    animation: toastin .18s ease-out;
-  }
+  #toasts { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 70; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .toast { background: rgba(0,0,0,0.85); border: 2px solid rgba(255,255,255,0.3); padding: 6px 16px; font-size: 19px; animation: toastin 0.18s ease-out; }
   @keyframes toastin { from { transform: translateY(-8px); opacity: 0; } }
 
-  #mobile-warn { z-index: 60; background: #14111f; flex-direction: column; gap: 10px; padding: 30px; text-align: center; }
+  #mobile-warn { z-index: 80; background: #14111f; flex-direction: column; gap: 10px; padding: 30px; text-align: center; }
 </style>
 </head>
-<body>
+<body class="blur-behind">
 
-<div id="menu" class="overlay">
-  <div class="stars" id="menu-stars"></div>
-  <div class="title">VOXELHEIM</div>
-  <div class="subtitle">a tiny open block world</div>
-  <div class="panel">
-    <div class="field">
-      <label for="name-input">Your name</label>
-      <input id="name-input" maxlength="16" placeholder="Steve? No — be original" autocomplete="off">
+<div id="title" class="overlay">
+  <div class="logo">TERRAVALE<span id="splash">Now with commands!</span></div>
+  <div id="title-stack">
+    <div id="create-panel" class="hidden">
+      <div id="mode-row">
+        <button class="mcbtn small on" id="mode-survival">Survival</button>
+        <button class="mcbtn small" id="mode-creative">Creative</button>
+      </div>
+      <input class="mcinput" id="seed-input" maxlength="24" placeholder="seed (optional)" autocomplete="off">
+      <button class="mcbtn primary" id="btn-create-go">Create New World</button>
+      <button class="mcbtn small" id="btn-create-back">Back</button>
     </div>
-    <button id="btn-create" class="primary">Create a new world</button>
-    <div class="btnrow" id="join-row">
-      <input id="code-input" maxlength="6" placeholder="CODE" autocomplete="off">
-      <button id="btn-join">Join</button>
+    <div id="title-main">
+      <div style="display:flex; flex-direction:column; gap:9px; align-items:center">
+        <button class="mcbtn" id="btn-host">Host World</button>
+        <div id="join-row">
+          <input class="mcinput" id="code-input" maxlength="6" placeholder="CODE" autocomplete="off">
+          <button class="mcbtn" id="btn-join" style="min-width:0">Join</button>
+        </div>
+        <button class="mcbtn" id="btn-options">Options…</button>
+      </div>
     </div>
     <div id="saved-wrap" class="hidden">
-      <div class="field" style="margin-top:6px"><label>Your saved worlds (host again to resume)</label></div>
+      <div class="panel-note">Your saved worlds — Host to resume</div>
       <div id="saved-worlds"></div>
     </div>
     <div class="menu-error" id="menu-error"></div>
   </div>
   <div class="footnote">
-    Works best on desktop Chrome/Edge/Firefox.<br>
-    All textures &amp; sounds generated by code — 100% original.
+    Desktop browser + mouse recommended · works with friends over room codes<br>
+    Every texture, sound and creature is generated by code — 100% original
   </div>
+</div>
+
+<div id="options" class="overlay hidden">
+  <h2>OPTIONS</h2>
+  <div id="options-tabs"></div>
+  <div id="options-body"></div>
+  <button class="mcbtn" id="btn-options-back">Done</button>
 </div>
 
 <div id="connecting" class="overlay hidden">
   <div class="spinner"></div>
   <div class="status" id="connecting-status">Contacting the void…</div>
-  <button id="btn-cancel-connect">Cancel</button>
+  <button class="mcbtn" id="btn-cancel-connect">Cancel</button>
 </div>
 
 <div id="pause" class="overlay hidden">
-  <div class="panel">
-    <h2>PAUSED</h2>
-    <button id="btn-resume" class="primary">Back to the world</button>
-    <div class="row"><span>Sound</span><button id="btn-sound" style="padding:6px 14px;font-size:13px">On</button></div>
-    <div class="row">
-      <span>Render distance</span>
-      <select id="render-dist">
-        <option value="3">Short (fast)</option>
-        <option value="4" selected>Normal</option>
-        <option value="5">Far</option>
-        <option value="6">Very far (slow)</option>
-      </select>
-    </div>
-    <div class="row" id="room-row"><span>Room code</span><span id="pause-code" style="letter-spacing:.15em;color:var(--accent);font-weight:bold"></span></div>
-    <button id="btn-quit" class="danger">Save &amp; quit</button>
-  </div>
+  <h2>GAME PAUSED</h2>
+  <button class="mcbtn primary" id="btn-resume">Back to Game</button>
+  <button class="mcbtn" id="btn-pause-options">Options…</button>
+  <button class="mcbtn danger" id="btn-quit">Save &amp; Quit to Title</button>
+  <div class="pause-meta" id="pause-meta"></div>
 </div>
 
-<div id="picker" class="overlay hidden">
-  <div class="panel">
-    <h2>Block palette</h2>
-    <div class="tip">Click a block to put it in your selected hotbar slot — E or Esc to close</div>
-    <div id="picker-groups"></div>
+<div id="death" class="overlay hidden">
+  <h1>You Died!</h1>
+  <div class="sub" id="death-sub">Your items scattered where you fell…</div>
+  <button class="mcbtn primary" id="btn-respawn">Respawn</button>
+  <button class="mcbtn" id="btn-death-title">Title Screen</button>
+</div>
+
+<div id="screen" class="overlay hidden">
+  <div id="screen-shade"></div>
+  <div id="screen-panel" class="mcpanel">
+    <div id="screen-title">Inventory</div>
+    <div id="container-area"></div>
+    <div id="player-inv-label">Inventory</div>
+    <div class="slotgrid" id="player-inv-grid" style="grid-template-columns: repeat(9, 44px);"></div>
+    <div class="slotgrid" id="player-hotbar-grid" style="grid-template-columns: repeat(9, 44px); margin-top: 8px;"></div>
   </div>
+  <div id="cursor-stack"><img><span class="count"></span></div>
+  <div id="tooltip"></div>
 </div>
 
 <div id="hud" class="overlay hidden">
   <div id="crosshair"></div>
+  <div id="hurt-overlay"></div>
   <div id="debug" class="hidden"></div>
   <div id="room-tag">
     <div class="rt-label">room code</div>
     <div class="rt-code" id="hud-code"></div>
     <div class="rt-role" id="hud-role"></div>
   </div>
+  <div id="stats">
+    <div id="hearts"></div>
+    <div id="hunger"></div>
+    <div id="air"></div>
+  </div>
   <div id="hotbar"></div>
-  <div id="block-name"></div>
-  <div id="hint" class="hidden">click to play — WASD move · E blocks · T chat · double-space fly</div>
+  <div id="held-name"></div>
+  <div id="hint" class="hidden">click to play — WASD move · E inventory · T chat · /help commands</div>
   <div id="chat"></div>
   <div id="chat-input-wrap" class="hidden">
-    <input id="chat-input" maxlength="120" placeholder="say something… (Enter to send, Esc to cancel)" autocomplete="off">
+    <input id="chat-input" maxlength="140" placeholder="message or /command… (Enter send · Esc cancel · ↑ history · Tab complete)" autocomplete="off">
   </div>
   <div id="player-list" class="hidden"></div>
 </div>
 
 <div id="mobile-warn" class="overlay hidden">
-  <div class="title" style="font-size:34px">VOXELHEIM</div>
+  <h1 style="font-size:34px">TERRAVALE</h1>
   <p>This world needs a keyboard &amp; mouse.<br>Please open it on a desktop browser.</p>
 </div>
 

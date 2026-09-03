@@ -1,12 +1,12 @@
 // Sky: day/night cycle with sun & moon, stars, drifting clouds, fog that
-// tracks the horizon color, and a global brightness value applied to the
-// chunk materials by main.js.
+// tracks the horizon color. dayFactor (0..1) drives hostile spawning and
+// the terrain shader's sky-light multiplier.
 
 import * as THREE from 'three';
 import { mulberry32 } from './noise.js';
 
 const DAY_LENGTH = 600; // seconds per full cycle
-const DAY_COLOR = new THREE.Color('#79b7ea');
+const DAY_COLOR = new THREE.Color('#78b5e8');
 const NIGHT_COLOR = new THREE.Color('#070b18');
 const SUNSET_COLOR = new THREE.Color('#e8823c');
 
@@ -23,8 +23,7 @@ function sunTexture() {
   ctx.fillRect(0, 0, 64, 64);
   ctx.fillStyle = '#fff7d9';
   ctx.fillRect(24, 24, 16, 16);
-  const t = new THREE.CanvasTexture(c);
-  return t;
+  return new THREE.CanvasTexture(c);
 }
 
 function moonTexture() {
@@ -72,32 +71,28 @@ export class Sky {
   constructor(scene, camera) {
     this.scene = scene;
     this.camera = camera;
-    this.time = 0.32; // start mid-morning
-    this.brightness = 1;
+    this.time = 0.32;
+    this.dayFactor = 1;
 
     this.skyColor = new THREE.Color();
-
     scene.background = this.skyColor;
-    scene.fog = new THREE.Fog(0x79b7ea, 40, 200);
+    scene.fog = new THREE.Fog(0x78b5e8, 40, 200);
     this.fogFar = 200;
+    this.underwaterOverride = false;
 
-    // celestial pivot follows the camera
     this.pivot = new THREE.Object3D();
     scene.add(this.pivot);
 
-    const sunMat = new THREE.SpriteMaterial({ map: sunTexture(), fog: false, depthWrite: false });
-    this.sun = new THREE.Sprite(sunMat);
-    this.sun.scale.setScalar(70);
+    this.sun = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunTexture(), fog: false, depthWrite: false }));
+    this.sun.scale.setScalar(74);
     this.sun.position.set(340, 0, 0);
     this.pivot.add(this.sun);
 
-    const moonMat = new THREE.SpriteMaterial({ map: moonTexture(), fog: false, depthWrite: false });
-    this.moon = new THREE.Sprite(moonMat);
-    this.moon.scale.setScalar(46);
+    this.moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonTexture(), fog: false, depthWrite: false }));
+    this.moon.scale.setScalar(48);
     this.moon.position.set(-340, 0, 0);
     this.pivot.add(this.moon);
 
-    // stars
     const starGeo = new THREE.BufferGeometry();
     const starPos = [];
     const rand = mulberry32(991203);
@@ -114,7 +109,6 @@ export class Sky {
     this.stars = new THREE.Points(starGeo, this.starMat);
     this.pivot.add(this.stars);
 
-    // clouds (world-fixed plane high above)
     this.cloudTex = cloudTexture();
     this.cloudTex.repeat.set(5, 5);
     this.cloudMat = new THREE.MeshBasicMaterial({
@@ -123,13 +117,14 @@ export class Sky {
     });
     this.clouds = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), this.cloudMat);
     this.clouds.rotation.x = -Math.PI / 2;
-    this.clouds.position.y = 119;
+    this.clouds.position.y = 165;
     this.clouds.renderOrder = -1;
     scene.add(this.clouds);
   }
 
   setTime(t) { this.time = ((t % 1) + 1) % 1; }
   getTime() { return this.time; }
+  getDayFactor() { return this.dayFactor; }
 
   setRenderDistance(blocks) {
     this.fogFar = blocks * 16 - 6;
@@ -137,33 +132,39 @@ export class Sky {
     this.scene.fog.far = this.fogFar;
   }
 
-  update(dt, cameraPos) {
+  setCloudsVisible(v) { this.clouds.visible = v; }
+
+  update(dt, cameraPos, headInWater) {
     this.time = (this.time + dt / DAY_LENGTH) % 1;
     const angle = this.time * Math.PI * 2;
     const elev = Math.sin(angle);
 
-    // global brightness
     const dayF = smoothstep(-0.14, 0.22, elev);
-    this.brightness = 0.16 + 0.84 * dayF;
+    this.dayFactor = dayF;
 
-    // sky color: night -> day with sunset tint near the horizon crossings
     this.skyColor.copy(NIGHT_COLOR).lerp(DAY_COLOR, dayF);
     const sunsetW = Math.exp(-Math.pow(elev / 0.14, 2)) * 0.55;
     this.skyColor.lerp(SUNSET_COLOR, sunsetW);
 
-    this.scene.fog.color.copy(this.skyColor);
-
-    // celestial rotation
     this.pivot.position.copy(cameraPos);
     this.pivot.rotation.z = angle;
     this.starMat.opacity = Math.max(0, 1 - dayF * 1.4) * 0.9;
 
-    // clouds drift & dim
     this.cloudTex.offset.x += dt * 0.0022;
     this.clouds.position.x = cameraPos.x;
     this.clouds.position.z = cameraPos.z;
     this.cloudMat.color.setScalar(0.35 + 0.65 * dayF);
-    this.cloudMat.opacity = 0.5;
+
+    if (headInWater) {
+      this.scene.fog.color.set(0x1d4291);
+      this.scene.fog.near = 1;
+      this.scene.fog.far = 22;
+      this.scene.background.set(0x1d4291);
+    } else {
+      this.scene.fog.color.copy(this.skyColor);
+      this.scene.fog.near = this.fogFar * 0.55;
+      this.scene.fog.far = this.fogFar;
+    }
   }
 }
 

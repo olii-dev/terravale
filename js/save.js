@@ -1,18 +1,24 @@
-// localStorage persistence: worlds (per room code) and player prefs.
+// localStorage persistence v2: worlds (per room code), player prefs.
+// Keys are namespaced tv:*.
 
-const WORLD_PREFIX = 'vhm:world:';
-const PREFS_KEY = 'vhm:prefs';
+const WORLD_PREFIX = 'tv:world:';
+const PREFS_KEY = 'tv:prefs';
 
-export function saveWorld(code, { seed, editsStr, time, pos, yaw }) {
+export function saveWorld(code, data) {
   try {
     localStorage.setItem(WORLD_PREFIX + code, JSON.stringify({
-      v: 1,
-      seed,
-      edits: editsStr,
-      time,
-      pos: pos ? [round2(pos[0]), round2(pos[1]), round2(pos[2])] : null,
-      yaw: yaw ?? 0,
-      blocks: editsStr ? editsStr.split(';').filter(Boolean).length : 0,
+      v: 2,
+      seed: data.seed,
+      mode: data.mode,
+      difficulty: data.difficulty ?? 'normal',
+      edits: data.editsStr,
+      time: data.time,
+      pos: data.pos,
+      yaw: data.yaw ?? 0,
+      containers: data.containers ?? [],
+      inv: data.inv ?? null,
+      stats: data.stats ?? null,
+      blocks: data.editsStr ? data.editsStr.split(';').filter(Boolean).length : 0,
       updated: Date.now(),
     }));
     return true;
@@ -46,11 +52,11 @@ export function listWorlds() {
 }
 
 export function savePrefs(prefs) {
-  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch { /* ignore */ }
 }
 
 export function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch { return {}; }
 }
-
-function round2(n) { return Math.round(n * 100) / 100; }

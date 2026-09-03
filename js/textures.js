@@ -1,12 +1,13 @@
-// Procedural texture atlas: every 16×16 tile is drawn with code at startup.
-// Deterministic per tile name, so every peer generates identical textures.
+// Procedural texture atlas v2: every 16×16 tile is drawn with code at
+// startup. Deterministic per tile name, so every peer generates identical
+// textures. Also owns block icons and the mining crack overlay textures.
 
 import * as THREE from 'three';
 import { mulberry32, hashSeed } from './noise.js';
 import { BLOCKS, WOOL_HEX } from './blocks.js';
 
 export const TILE = 16;
-export const ATLAS_COLS = 8;
+export const ATLAS_COLS = 10;
 export const ATLAS_ROWS = 8;
 
 // ---- tiny color helpers ----
@@ -69,7 +70,7 @@ const PAINTERS = {
     speckle(ctx, rand, ['#7b7b7b', '#979797', '#747474'], 30);
   },
   cobble(ctx, rand) {
-    fillAll(ctx, '#5f5f5f'); // mortar
+    fillAll(ctx, '#5f5f5f');
     const stones = 7;
     for (let i = 0; i < stones; i++) {
       const cx = 1 + Math.floor(rand() * (TILE - 4));
@@ -139,6 +140,15 @@ const PAINTERS = {
       ctx.fillRect(x, y, 3 + Math.floor(rand() * 4), 1);
     }
   },
+  lava(ctx, rand) {
+    fillAll(ctx, '#cf4a12');
+    for (let i = 0; i < 10; i++) {
+      const x = Math.floor(rand() * (TILE - 5)), y = Math.floor(rand() * TILE);
+      ctx.fillStyle = pick(rand, ['#f2a13c', '#e8741e', '#f7c95c']);
+      ctx.fillRect(x, y, 3 + Math.floor(rand() * 4), 1 + Math.floor(rand() * 2));
+    }
+    speckle(ctx, rand, ['#8a2c08', '#a83410'], 14);
+  },
   logSide(bark, dark) {
     return (ctx, rand) => {
       fillAll(ctx, bark);
@@ -179,7 +189,6 @@ const PAINTERS = {
       grain(ctx, rand, base, 10, 0.3);
       ctx.fillStyle = dark;
       for (const y of [3, 7, 11, 15]) ctx.fillRect(0, y, TILE, 1);
-      // board end seams
       fillPx(ctx, 4, 0, dark); fillPx(ctx, 5, 0, dark);
       fillPx(ctx, 11, 4, dark); fillPx(ctx, 12, 4, dark);
       fillPx(ctx, 6, 8, dark); fillPx(ctx, 7, 8, dark);
@@ -308,6 +317,103 @@ const PAINTERS = {
     branch(7, 11, -0.7, -0.8, 5); branch(8, 10, 0.7, -0.8, 5);
     branch(7, 8, -0.4, -1, 4); branch(8, 7, 0.5, -1, 4);
   },
+  torch(ctx, rand) {
+    ctx.clearRect(0, 0, TILE, TILE);
+    ctx.fillStyle = '#8a6a3f';
+    ctx.fillRect(7, 6, 2, 9);
+    ctx.fillStyle = '#6e5330';
+    ctx.fillRect(7, 6, 1, 9);
+    // flame
+    ctx.fillStyle = '#f7c95c';
+    ctx.fillRect(6, 3, 4, 3);
+    ctx.fillStyle = '#fff3b0';
+    ctx.fillRect(7, 3, 2, 2);
+    fillPx(ctx, 6, 2, '#e8741e'); fillPx(ctx, 9, 2, '#e8741e');
+  },
+  table_top(ctx, rand) {
+    PAINTERS.planks('#a07847', '#6e4d2c')(ctx, rand);
+    ctx.fillStyle = '#5c4022';
+    ctx.strokeStyle = '#5c4022';
+    ctx.strokeRect(2.5, 2.5, 11, 11);
+    ctx.fillRect(2, 2, 12, 1); ctx.fillRect(2, 13, 12, 1);
+    ctx.fillRect(2, 2, 1, 12); ctx.fillRect(13, 2, 1, 12);
+    ctx.fillRect(7, 2, 1, 12); ctx.fillRect(2, 7, 12, 1);
+  },
+  table_side(ctx, rand) {
+    PAINTERS.planks('#a07847', '#6e4d2c')(ctx, rand);
+    ctx.fillStyle = '#5c4022';
+    ctx.fillRect(2, 4, 5, 6);
+    ctx.fillStyle = '#8f8a82';
+    ctx.fillRect(9, 4, 4, 6);
+    ctx.fillStyle = '#4a4a4a';
+    ctx.fillRect(10, 5, 2, 2);
+  },
+  furnace_top(ctx, rand) {
+    PAINTERS.stone(ctx, rand);
+    ctx.strokeStyle = '#5c5c5c';
+    ctx.strokeRect(3.5, 3.5, 9, 9);
+  },
+  furnace_side(ctx, rand) {
+    PAINTERS.stone(ctx, rand);
+    ctx.fillStyle = '#2b2b2b';
+    ctx.fillRect(4, 7, 8, 6);
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(4, 7, 8, 1);
+    ctx.fillStyle = '#e8741e';
+    ctx.fillRect(5, 11, 6, 2);
+    ctx.fillStyle = '#f7c95c';
+    ctx.fillRect(6, 12, 4, 1); ctx.fillRect(7, 11, 2, 1);
+  },
+  chest_top(ctx, rand) {
+    PAINTERS.planks('#9a6b3a', '#6e4a26')(ctx, rand);
+    ctx.strokeStyle = '#5c3d1e';
+    ctx.strokeRect(1.5, 1.5, 13, 13);
+  },
+  chest_side(ctx, rand) {
+    PAINTERS.planks('#9a6b3a', '#6e4a26')(ctx, rand);
+    ctx.fillStyle = '#5c3d1e';
+    ctx.fillRect(0, 5, TILE, 1);
+    ctx.fillStyle = '#4a4a4a';
+    ctx.fillRect(7, 3, 2, 4);
+    ctx.fillStyle = '#9c9c9c';
+    ctx.fillRect(7, 3, 2, 1);
+  },
+  glowstone(ctx, rand) {
+    fillAll(ctx, '#b8934a');
+    speckle(ctx, rand, ['#f2d97a', '#ffe9a8', '#d9b45c'], 60);
+    speckle(ctx, rand, ['#8a6a30'], 10);
+  },
+  cactus_top(ctx, rand) {
+    fillAll(ctx, '#3d7a2e');
+    ctx.fillStyle = '#4e9a3a';
+    ctx.fillRect(2, 2, 12, 12);
+    grain(ctx, rand, '#4e9a3a', 10, 0.3);
+  },
+  cactus_side(ctx, rand) {
+    fillAll(ctx, '#2e5c22');
+    for (const x of [1, 6, 11]) {
+      ctx.fillStyle = '#4e9a3a';
+      ctx.fillRect(x, 0, 3, TILE);
+    }
+    ctx.fillStyle = '#d9e8c4';
+    for (let i = 0; i < 10; i++) fillPx(ctx, Math.floor(rand() * TILE), Math.floor(rand() * TILE), '#c4d4a8');
+  },
+  pumpkin_top(ctx, rand) {
+    fillAll(ctx, '#d97b2a');
+    grain(ctx, rand, '#d97b2a', 10, 0.35);
+    ctx.fillStyle = '#6e5330';
+    ctx.fillRect(6, 6, 3, 3);
+    ctx.fillStyle = '#8a6a3f';
+    ctx.fillRect(7, 5, 1, 4);
+  },
+  pumpkin_side(ctx, rand) {
+    fillAll(ctx, '#d97b2a');
+    for (const x of [0, 5, 10]) {
+      ctx.fillStyle = '#c4691e';
+      ctx.fillRect(x, 0, 1, TILE);
+    }
+    grain(ctx, rand, '#d97b2a', 10, 0.3);
+  },
 };
 
 // named composites
@@ -343,8 +449,7 @@ Object.assign(PAINTERS, {
 });
 
 for (const [id, hex] of Object.entries(WOOL_HEX)) {
-  const name = BLOCKS[+id].side;
-  PAINTERS[name] = PAINTERS.wool(hex);
+  PAINTERS[BLOCKS[+id].side] = PAINTERS.wool(hex);
 }
 
 // ---- atlas assembly ----
@@ -357,7 +462,6 @@ let atlasTexture = null;
 export function buildAtlas() {
   if (atlasTexture) return atlasTexture;
 
-  // collect every tile name any block references
   for (const bl of BLOCKS) {
     if (!bl) continue;
     for (const t of [bl.top, bl.bottom, bl.side]) {
@@ -380,7 +484,7 @@ export function buildAtlas() {
     ctx.save();
     ctx.translate(col * TILE, row * TILE);
     ctx.beginPath(); ctx.rect(0, 0, TILE, TILE); ctx.clip();
-    painter(ctx, mulberry32(hashSeed('voxelheim:' + name)));
+    painter(ctx, mulberry32(hashSeed('terravale:' + name)));
     ctx.restore();
   });
 
@@ -392,22 +496,55 @@ export function buildAtlas() {
   return atlasTexture;
 }
 
-const EPS = 0.02 / ATLAS_COLS; // tiny inset against bleeding
+const EPS = 0.02 / ATLAS_COLS;
 export function uvRect(tileIdx) {
   const col = tileIdx % ATLAS_COLS, row = Math.floor(tileIdx / ATLAS_COLS);
   const u0 = col / ATLAS_COLS + EPS;
   const u1 = (col + 1) / ATLAS_COLS - EPS;
-  // canvas y grows downward, texture v grows upward
   const v1 = 1 - row / ATLAS_ROWS - EPS;
   const v0 = 1 - (row + 1) / ATLAS_ROWS + EPS;
   return [u0, v0, u1, v1];
 }
 
-// ---- isometric block icons for hotbar / picker ----
+export function atlasCanvasEl() { return atlasCanvas; }
+
+// ---- crack overlay textures (10 stages) ----
+let crackTextures = null;
+export function getCrackTextures() {
+  if (crackTextures) return crackTextures;
+  crackTextures = [];
+  for (let stage = 0; stage < 10; stage++) {
+    const c = document.createElement('canvas');
+    c.width = c.height = TILE;
+    const ctx = c.getContext('2d');
+    const rand = mulberry32(hashSeed('crack:' + stage));
+    const segments = 3 + stage * 3;
+    ctx.fillStyle = 'rgba(10,8,6,0.85)';
+    for (let i = 0; i < segments; i++) {
+      let x = Math.floor(rand() * TILE), y = Math.floor(rand() * TILE);
+      const len = 2 + Math.floor(rand() * (3 + stage * 0.5));
+      for (let j = 0; j < len; j++) {
+        ctx.fillRect(x, y, 1, 1);
+        x += Math.floor(rand() * 3) - 1;
+        y += Math.floor(rand() * 3) - 1;
+        x = Math.max(0, Math.min(TILE - 1, x));
+        y = Math.max(0, Math.min(TILE - 1, y));
+      }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    crackTextures.push(tex);
+  }
+  return crackTextures;
+}
+
+// ---- isometric block icons for hotbar / pickers ----
 const iconCache = new Map();
 
 export function blockIcon(blockId, size = 64) {
-  const key = blockId + ':' + size;
+  const key = 'b' + blockId + ':' + size;
   if (iconCache.has(key)) return iconCache.get(key);
 
   const bl = BLOCKS[blockId];
@@ -426,18 +563,17 @@ export function blockIcon(blockId, size = 64) {
     };
   };
 
-  if (bl.cross || bl.water || bl.glass) {
-    // flat icon for plants / liquids / glass
+  if (bl.cross || bl.water || bl.glass || bl.liquid) {
     const { sx, sy } = src(bl.side);
     ctx.drawImage(atlasCanvas, sx, sy, TILE, TILE, size * 0.1, size * 0.1, size * 0.8, size * 0.8);
     iconCache.set(key, c);
     return c;
   }
 
-  const a = size * 0.42;   // half diamond width
-  const b = a / 2;         // half diamond height
-  const y0 = size * 0.06;  // top corner
-  const ch = size * 0.44;  // side face height
+  const a = size * 0.42;
+  const b = a / 2;
+  const y0 = size * 0.06;
+  const ch = size * 0.44;
   const k = a / TILE;
 
   const drawFace = (tileName, m, dark) => {
@@ -453,11 +589,8 @@ export function blockIcon(blockId, size = 64) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   };
 
-  // top face: image(0,0)->(S/2,y0), x-axis->(a,b), y-axis->(-a,b)
   drawFace(bl.top, [k, b / TILE, -k, b / TILE, size / 2, y0], 0);
-  // left face: origin (S/2-a, y0+b), x-axis (a,b), y-axis (0,ch)
   drawFace(bl.side, [k, b / TILE, 0, ch / TILE, size / 2 - a, y0 + b], 0.22);
-  // right face: origin (S/2, y0+2b), x-axis (a,-b), y-axis (0,ch)
   drawFace(bl.side, [k, -b / TILE, 0, ch / TILE, size / 2, y0 + 2 * b], 0.42);
 
   iconCache.set(key, c);

@@ -1,6 +1,6 @@
-// Block registry. Every texture name here gets a procedurally drawn tile
-// in the atlas (see textures.js). Ids must stay stable — they travel over
-// the network and live in saves.
+// Block registry v2. Ids are stable — they travel over the network and
+// live in saves. Every texture name gets a procedurally drawn tile in the
+// atlas (textures.js); item sprites come from sprites.js.
 
 export const B = {
   AIR: 0,
@@ -60,6 +60,27 @@ export const B = {
   BLOOM_YELLOW: 54,
   WILD_GRASS: 55,
   DEAD_BUSH: 56,
+  TORCH: 57,
+  TABLE: 58,
+  FURNACE: 59,
+  CHEST: 60,
+  GLOWSTONE: 61,
+  LAVA: 62,
+  CACTUS: 63,
+  PUMPKIN: 64,
+};
+
+// item ids (registry details in items.js)
+export const I = {
+  STICK: 100,
+  COAL: 101,
+  IRON_INGOT: 102,
+  GOLD_INGOT: 103,
+  DIAMOND: 104,
+  APPLE: 105,
+  RAW_MEAT: 106,
+  COOKED_MEAT: 107,
+  TOOLS_BASE: 110, // 110 + tier*4 + class; tiers: wood, stone, iron, gold, diamond
 };
 
 export const BLOCKS = [];
@@ -71,63 +92,70 @@ function def(id, name, opt = {}) {
     top: opt.top ?? opt.all,
     bottom: opt.bottom ?? opt.all,
     side: opt.side ?? opt.all,
-    // collision
     solid: opt.solid ?? true,
-    // hides neighboring faces & rendered in opaque pass
     opaque: opt.opaque ?? true,
-    // cross-shaped plant (no collision)
     cross: opt.cross ?? false,
     water: opt.water ?? false,
     glass: opt.glass ?? false,
     breakable: opt.breakable ?? true,
     sound: opt.sound ?? 'stone',
     group: opt.group ?? 'natural',
+    // v2 mining
+    hardness: opt.hardness ?? 1.5,
+    tool: opt.tool ?? null,              // 'pickaxe' | 'axe' | 'shovel'
+    tier: opt.tier ?? 0,                 // min tool tier for drops
+    needsTool: opt.needsTool ?? false,
+    drops: opt.drops,                    // undefined => itself
+    light: opt.light ?? 0,               // emission 0..15
+    liquid: opt.liquid ?? false,
+    damage: opt.damage ?? 0,             // contact damage per second
+    interact: opt.interact ?? null,      // 'table' | 'furnace' | 'chest'
   };
 }
 
 // --- natural ---
-def(B.GRASS, 'Grass', { top: 'grass_top', side: 'grass_side', bottom: 'dirt', sound: 'grass' });
-def(B.DIRT, 'Dirt', { all: 'dirt', sound: 'gravel' });
-def(B.STONE, 'Stone', { all: 'stone' });
-def(B.COBBLE, 'Cobblestone', { all: 'cobble' });
-def(B.BEDROCK, 'Bedrock', { all: 'bedrock', breakable: false });
-def(B.SAND, 'Sand', { all: 'sand', sound: 'sand' });
-def(B.SANDSTONE, 'Sandstone', { top: 'sandstone_top', side: 'sandstone_side', bottom: 'sandstone_top' });
-def(B.GRAVEL, 'Gravel', { all: 'gravel', sound: 'gravel' });
-def(B.SNOWY_GRASS, 'Snowy grass', { top: 'snow', side: 'grass_side_snow', bottom: 'dirt', sound: 'snow' });
-def(B.CLAY, 'Clay', { all: 'clay', sound: 'gravel' });
-def(B.MOSSY_COBBLE, 'Mossy cobblestone', { all: 'mossy_cobble' });
-def(B.WATER, 'Water', { all: 'water', solid: false, opaque: false, water: true });
-def(B.SNOW, 'Snow block', { all: 'snow', sound: 'snow' });
+def(B.GRASS, 'Grass block', { top: 'grass_top', side: 'grass_side', bottom: 'dirt', sound: 'grass', hardness: 0.6, tool: 'shovel', drops: () => [{ id: B.DIRT, count: 1 }] });
+def(B.DIRT, 'Dirt', { all: 'dirt', sound: 'gravel', hardness: 0.5, tool: 'shovel' });
+def(B.STONE, 'Stone', { all: 'stone', hardness: 1.5, tool: 'pickaxe', needsTool: true, drops: () => [{ id: B.COBBLE, count: 1 }] });
+def(B.COBBLE, 'Cobblestone', { all: 'cobble', hardness: 2, tool: 'pickaxe', needsTool: true });
+def(B.BEDROCK, 'Bedrock', { all: 'bedrock', breakable: false, hardness: 1e9 });
+def(B.SAND, 'Sand', { all: 'sand', sound: 'sand', hardness: 0.5, tool: 'shovel' });
+def(B.SANDSTONE, 'Sandstone', { top: 'sandstone_top', side: 'sandstone_side', bottom: 'sandstone_top', hardness: 0.8, tool: 'pickaxe', needsTool: true });
+def(B.GRAVEL, 'Gravel', { all: 'gravel', sound: 'gravel', hardness: 0.6, tool: 'shovel' });
+def(B.SNOWY_GRASS, 'Snowy grass', { top: 'snow', side: 'grass_side_snow', bottom: 'dirt', sound: 'snow', hardness: 0.6, tool: 'shovel', drops: () => [{ id: B.DIRT, count: 1 }] });
+def(B.CLAY, 'Clay', { all: 'clay', sound: 'gravel', hardness: 0.6, tool: 'shovel' });
+def(B.MOSSY_COBBLE, 'Mossy cobblestone', { all: 'mossy_cobble', hardness: 2, tool: 'pickaxe', needsTool: true });
+def(B.WATER, 'Water', { all: 'water', solid: false, opaque: false, water: true, liquid: true, hardness: 1e9, breakable: false });
+def(B.SNOW, 'Snow block', { all: 'snow', sound: 'snow', hardness: 0.3, tool: 'shovel' });
 
 // --- wood ---
-def(B.OAK_LOG, 'Oak log', { side: 'oak_log_side', top: 'oak_log_top', bottom: 'oak_log_top', sound: 'wood' });
-def(B.BIRCH_LOG, 'Birch log', { side: 'birch_log_side', top: 'birch_log_top', bottom: 'birch_log_top', sound: 'wood' });
-def(B.SPRUCE_LOG, 'Spruce log', { side: 'spruce_log_side', top: 'spruce_log_top', bottom: 'spruce_log_top', sound: 'wood' });
-def(B.OAK_LEAVES, 'Oak leaves', { all: 'oak_leaves', sound: 'leaves' });
-def(B.BIRCH_LEAVES, 'Birch leaves', { all: 'birch_leaves', sound: 'leaves' });
-def(B.SPRUCE_LEAVES, 'Spruce leaves', { all: 'spruce_leaves', sound: 'leaves' });
-def(B.OAK_PLANKS, 'Oak planks', { all: 'oak_planks', sound: 'wood' });
-def(B.BIRCH_PLANKS, 'Birch planks', { all: 'birch_planks', sound: 'wood' });
-def(B.SPRUCE_PLANKS, 'Spruce planks', { all: 'spruce_planks', sound: 'wood' });
+def(B.OAK_LOG, 'Oak log', { side: 'oak_log_side', top: 'oak_log_top', bottom: 'oak_log_top', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.BIRCH_LOG, 'Birch log', { side: 'birch_log_side', top: 'birch_log_top', bottom: 'birch_log_top', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.SPRUCE_LOG, 'Spruce log', { side: 'spruce_log_side', top: 'spruce_log_top', bottom: 'spruce_log_top', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.OAK_LEAVES, 'Oak leaves', { all: 'oak_leaves', sound: 'leaves', hardness: 0.2, drops: () => (Math.random() < 0.06 ? [{ id: I.APPLE, count: 1 }] : []) });
+def(B.BIRCH_LEAVES, 'Birch leaves', { all: 'birch_leaves', sound: 'leaves', hardness: 0.2, drops: () => (Math.random() < 0.06 ? [{ id: I.APPLE, count: 1 }] : []) });
+def(B.SPRUCE_LEAVES, 'Spruce leaves', { all: 'spruce_leaves', sound: 'leaves', hardness: 0.2, drops: () => [] });
+def(B.OAK_PLANKS, 'Oak planks', { all: 'oak_planks', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.BIRCH_PLANKS, 'Birch planks', { all: 'birch_planks', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.SPRUCE_PLANKS, 'Spruce planks', { all: 'spruce_planks', sound: 'wood', hardness: 2, tool: 'axe' });
 
 // --- ores & minerals ---
-def(B.COAL_ORE, 'Coal ore', { all: 'coal_ore' });
-def(B.IRON_ORE, 'Iron ore', { all: 'iron_ore' });
-def(B.GOLD_ORE, 'Gold ore', { all: 'gold_ore' });
-def(B.DIAMOND_ORE, 'Diamond ore', { all: 'diamond_ore' });
-def(B.COAL_BLOCK, 'Coal block', { all: 'coal_block' });
-def(B.IRON_BLOCK, 'Iron block', { all: 'iron_block' });
-def(B.GOLD_BLOCK, 'Gold block', { all: 'gold_block' });
-def(B.DIAMOND_BLOCK, 'Diamond block', { all: 'diamond_block' });
+def(B.COAL_ORE, 'Coal ore', { all: 'coal_ore', hardness: 3, tool: 'pickaxe', needsTool: true, tier: 0, drops: () => [{ id: I.COAL, count: 1 }] });
+def(B.IRON_ORE, 'Iron ore', { all: 'iron_ore', hardness: 3, tool: 'pickaxe', needsTool: true, tier: 1 });
+def(B.GOLD_ORE, 'Gold ore', { all: 'gold_ore', hardness: 3, tool: 'pickaxe', needsTool: true, tier: 2 });
+def(B.DIAMOND_ORE, 'Diamond ore', { all: 'diamond_ore', hardness: 3, tool: 'pickaxe', needsTool: true, tier: 2, drops: () => [{ id: I.DIAMOND, count: 1 }] });
+def(B.COAL_BLOCK, 'Coal block', { all: 'coal_block', hardness: 5, tool: 'pickaxe', needsTool: true });
+def(B.IRON_BLOCK, 'Iron block', { all: 'iron_block', hardness: 5, tool: 'pickaxe', needsTool: true, tier: 1 });
+def(B.GOLD_BLOCK, 'Gold block', { all: 'gold_block', hardness: 3, tool: 'pickaxe', needsTool: true, tier: 2 });
+def(B.DIAMOND_BLOCK, 'Diamond block', { all: 'diamond_block', hardness: 5, tool: 'pickaxe', needsTool: true, tier: 2 });
 
 // --- building ---
-def(B.BRICKS, 'Bricks', { all: 'bricks' });
-def(B.STONE_BRICKS, 'Stone bricks', { all: 'stone_bricks' });
-def(B.MOSSY_STONE_BRICKS, 'Mossy stone bricks', { all: 'mossy_stone_bricks' });
-def(B.GLASS, 'Glass', { all: 'glass', opaque: false, glass: true, sound: 'glass' });
-def(B.OBSIDIAN, 'Obsidian', { all: 'obsidian' });
-def(B.BOOKSHELF, 'Bookshelf', { side: 'bookshelf', top: 'oak_planks', bottom: 'oak_planks', sound: 'wood' });
+def(B.BRICKS, 'Bricks', { all: 'bricks', hardness: 2, tool: 'pickaxe', needsTool: true });
+def(B.STONE_BRICKS, 'Stone bricks', { all: 'stone_bricks', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.MOSSY_STONE_BRICKS, 'Mossy stone bricks', { all: 'mossy_stone_bricks', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.GLASS, 'Glass', { all: 'glass', opaque: false, glass: true, sound: 'glass', hardness: 0.3, drops: () => [] });
+def(B.OBSIDIAN, 'Obsidian', { all: 'obsidian', hardness: 12, tool: 'pickaxe', needsTool: true, tier: 3 });
+def(B.BOOKSHELF, 'Bookshelf', { side: 'bookshelf', top: 'oak_planks', bottom: 'oak_planks', sound: 'wood', hardness: 1.5, tool: 'axe', drops: () => [{ id: B.OAK_PLANKS, count: 3 }] });
 
 // --- wool ---
 const WOOLS = [
@@ -149,15 +177,42 @@ const WOOLS = [
   ['WOOL_MINT', 'Mint wool', 'wool_mint', '#6bc490'],
 ];
 for (const [key, name, tile, hex] of WOOLS) {
-  def(B[key], name, { all: tile, sound: 'wool', group: 'wool' });
+  def(B[key], name, { all: tile, sound: 'wool', hardness: 0.8, group: 'wool' });
 }
 export const WOOL_HEX = Object.fromEntries(WOOLS.map(([key, , , hex]) => [B[key], hex]));
 
-// --- plants (cross-shaped, no collision) ---
-def(B.BLOOM_RED, 'Red bloom', { all: 'flower_red', solid: false, opaque: false, cross: true, sound: 'leaves', group: 'plants' });
-def(B.BLOOM_YELLOW, 'Yellow bloom', { all: 'flower_yellow', solid: false, opaque: false, cross: true, sound: 'leaves', group: 'plants' });
-def(B.WILD_GRASS, 'Wild grass', { all: 'tall_grass', solid: false, opaque: false, cross: true, sound: 'leaves', group: 'plants' });
-def(B.DEAD_BUSH, 'Dead bush', { all: 'dead_bush', solid: false, opaque: false, cross: true, sound: 'leaves', group: 'plants' });
+// --- plants ---
+def(B.BLOOM_RED, 'Red bloom', { all: 'flower_red', solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants' });
+def(B.BLOOM_YELLOW, 'Yellow bloom', { all: 'flower_yellow', solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants' });
+def(B.WILD_GRASS, 'Wild grass', { all: 'tall_grass', solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants', drops: () => [] });
+def(B.DEAD_BUSH, 'Dead bush', { all: 'dead_bush', solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants', drops: () => (Math.random() < 0.35 ? [{ id: I.STICK, count: 1 }] : []) });
+
+// --- functional / special ---
+def(B.TORCH, 'Torch', { all: 'torch', solid: false, opaque: false, cross: true, sound: 'wood', hardness: 0.05, light: 14, group: 'building' });
+def(B.TABLE, 'Crafting table', { top: 'table_top', side: 'table_side', bottom: 'oak_planks', sound: 'wood', hardness: 2.5, tool: 'axe', interact: 'table', group: 'building' });
+def(B.FURNACE, 'Furnace', { top: 'furnace_top', side: 'furnace_side', bottom: 'furnace_top', hardness: 3.5, tool: 'pickaxe', needsTool: true, interact: 'furnace', group: 'building' });
+def(B.CHEST, 'Chest', { top: 'chest_top', side: 'chest_side', bottom: 'chest_top', sound: 'wood', hardness: 2.5, tool: 'axe', interact: 'chest', group: 'building' });
+def(B.GLOWSTONE, 'Glowstone', { all: 'glowstone', sound: 'glass', hardness: 0.3, light: 15, group: 'building' });
+def(B.LAVA, 'Lava', { all: 'lava', solid: false, opaque: false, water: true, liquid: true, light: 15, hardness: 1e9, breakable: false, damage: 8 });
+def(B.CACTUS, 'Cactus', { side: 'cactus_side', top: 'cactus_top', bottom: 'cactus_top', sound: 'wool', hardness: 0.4, damage: 2, group: 'plants' });
+def(B.PUMPKIN, 'Pumpkin', { top: 'pumpkin_top', side: 'pumpkin_side', bottom: 'pumpkin_top', sound: 'wood', hardness: 1, tool: 'axe', group: 'natural' });
+
+// group fixes
+for (const id of [B.COAL_ORE, B.IRON_ORE, B.GOLD_ORE, B.DIAMOND_ORE, B.COAL_BLOCK, B.IRON_BLOCK, B.GOLD_BLOCK, B.DIAMOND_BLOCK]) {
+  BLOCKS[id].group = 'ores';
+}
+BLOCKS[B.SANDSTONE].group = 'natural';
+for (const id of [B.BRICKS, B.STONE_BRICKS, B.MOSSY_STONE_BRICKS, B.GLASS, B.OBSIDIAN, B.BOOKSHELF]) BLOCKS[id].group = 'building';
+for (const id of [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.OAK_LEAVES, B.BIRCH_LEAVES, B.SPRUCE_LEAVES, B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS]) BLOCKS[id].group = 'wood';
+
+export const isOpaque = (id) => BLOCKS[id]?.opaque ?? false;
+export const isSolid = (id) => BLOCKS[id]?.solid ?? false;
+export const isWater = (id) => id === B.WATER;
+export const isLava = (id) => id === B.LAVA;
+export const isLiquid = (id) => BLOCKS[id]?.liquid ?? false;
+export const isCross = (id) => BLOCKS[id]?.cross ?? false;
+export const lightOf = (id) => BLOCKS[id]?.light ?? 0;
+export const isReplaceable = (id) => id === B.AIR || isCross(id) || isLiquid(id);
 
 // faceTiles[face] with face order: +X, -X, +Y(top), -Y(bottom), +Z, -Z
 export function resolveFaceTiles(tileIndex) {
@@ -171,13 +226,6 @@ export function resolveFaceTiles(tileIndex) {
   }
 }
 
-export const isOpaque = (id) => BLOCKS[id]?.opaque ?? false;
-export const isSolid = (id) => BLOCKS[id]?.solid ?? false;
-export const isWater = (id) => id === B.WATER;
-export const isCross = (id) => BLOCKS[id]?.cross ?? false;
-export const isReplaceable = (id) => id === B.AIR || isCross(id) || isWater(id);
-
-// picker groups in display order
 export const GROUP_LABELS = {
   natural: 'Natural',
   wood: 'Wood',
@@ -186,17 +234,14 @@ export const GROUP_LABELS = {
   wool: 'Wool',
   plants: 'Plants',
 };
-for (const [id] of Object.entries({ COAL_ORE: 0, IRON_ORE: 0, GOLD_ORE: 0, DIAMOND_ORE: 0, COAL_BLOCK: 0, IRON_BLOCK: 0, GOLD_BLOCK: 0, DIAMOND_BLOCK: 0 })) {
-  BLOCKS[B[id]].group = 'ores';
+
+// blocks placeable from the creative palette
+export const PALETTE_IDS = BLOCKS.filter((b) => b && b.id !== B.AIR && !b.water && b.id !== B.LAVA && b.id !== B.BEDROCK).map((b) => b.id);
+
+// drop computation: returns [{id, count}]
+export function dropsFor(blockId, rand = Math.random) {
+  const bl = BLOCKS[blockId];
+  if (!bl) return [];
+  if (bl.drops) return bl.drops(rand);
+  return [{ id: blockId, count: 1 }];
 }
-BLOCKS[B.SANDSTONE].group = 'natural';
-[B.BRICKS, B.STONE_BRICKS, B.MOSSY_STONE_BRICKS, B.GLASS, B.OBSIDIAN, B.BOOKSHELF].forEach((id) => (BLOCKS[id].group = 'building'));
-[B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.OAK_LEAVES, B.BIRCH_LEAVES, B.SPRUCE_LEAVES, B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS].forEach((id) => (BLOCKS[id].group = 'wood'));
-
-// blocks shown in the palette (everything placeable)
-export const PALETTE_IDS = BLOCKS.filter((b) => b && b.id !== B.AIR && b.id !== B.WATER).map((b) => b.id);
-
-export const DEFAULT_HOTBAR = [
-  B.GRASS, B.STONE, B.OAK_PLANKS, B.OAK_LOG, B.GLASS,
-  B.BRICKS, B.SAND, B.WOOL_RED, B.BLOOM_RED,
-];

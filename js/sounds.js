@@ -16,7 +16,10 @@ export class Sfx {
   constructor() {
     this.ctx = null;
     this.master = null;
+    this.sfxGain = null;
     this.muted = false;
+    this.masterVol = 0.8;
+    this.sfxVol = 1.0;
   }
 
   ensure() {
@@ -24,8 +27,10 @@ export class Sfx {
     try {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.35;
       this.master.connect(this.ctx.destination);
+      this.sfxGain = this.ctx.createGain();
+      this.sfxGain.connect(this.master);
+      this.applyVolumes();
     } catch {
       return false;
     }
@@ -36,10 +41,13 @@ export class Sfx {
     if (this.ensure() && this.ctx.state === 'suspended') this.ctx.resume();
   }
 
-  setMuted(m) {
-    this.muted = m;
-    if (this.master) this.master.gain.value = m ? 0 : 0.35;
+  applyVolumes() {
+    if (this.master) this.master.gain.value = this.muted ? 0 : this.masterVol;
+    if (this.sfxGain) this.sfxGain.gain.value = this.sfxVol;
   }
+
+  setMuted(m) { this.muted = m; this.applyVolumes(); }
+  setVolumes(master, sfx) { this.masterVol = master; this.sfxVol = sfx; this.applyVolumes(); }
 
   tone(freq, type, dur, volume = 1, slide = 0) {
     if (!this.ensure() || this.muted) return;
@@ -51,7 +59,7 @@ export class Sfx {
     if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t + dur);
     gain.gain.setValueAtTime(volume, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    osc.connect(gain).connect(this.master);
+    osc.connect(gain).connect(this.sfxGain);
     osc.start(t);
     osc.stop(t + dur + 0.02);
   }
@@ -71,7 +79,7 @@ export class Sfx {
     const gain = this.ctx.createGain();
     gain.gain.setValueAtTime(volume, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    src.connect(filt).connect(gain).connect(this.master);
+    src.connect(filt).connect(gain).connect(this.sfxGain);
     src.start(t);
   }
 
@@ -89,25 +97,30 @@ export class Sfx {
     this.tone(p.freq, p.type, p.dur, 0.32, -p.freq * 0.5);
   }
 
+  hit(mat = 'stone') { // partial mining tick
+    const p = this.materialParams(mat);
+    this.noiseBurst(0.05, 1400 + p.freq * 3, 0.12 * (0.4 + p.noise));
+  }
+
   step(mat = 'grass') {
     const p = this.materialParams(mat);
     this.noiseBurst(0.045, 900 + p.freq * 2, 0.1 * (0.5 + p.noise));
   }
 
   chatPing() {
-    this.tone(660, 'sine', 0.08, 0.4);
-    setTimeout(() => this.tone(880, 'sine', 0.1, 0.4), 70);
+    this.tone(660, 'sine', 0.08, 0.35);
+    setTimeout(() => this.tone(880, 'sine', 0.1, 0.35), 70);
   }
 
   joinChime() {
-    this.tone(392, 'sine', 0.12, 0.45);
-    setTimeout(() => this.tone(523, 'sine', 0.12, 0.45), 90);
-    setTimeout(() => this.tone(659, 'sine', 0.18, 0.45), 180);
+    this.tone(392, 'sine', 0.12, 0.4);
+    setTimeout(() => this.tone(523, 'sine', 0.12, 0.4), 90);
+    setTimeout(() => this.tone(659, 'sine', 0.18, 0.4), 180);
   }
 
   leaveChime() {
-    this.tone(523, 'sine', 0.12, 0.4);
-    setTimeout(() => this.tone(392, 'sine', 0.16, 0.4), 100);
+    this.tone(523, 'sine', 0.12, 0.35);
+    setTimeout(() => this.tone(392, 'sine', 0.16, 0.35), 100);
   }
 
   splash() {
@@ -117,5 +130,54 @@ export class Sfx {
 
   flyWhoosh() {
     this.tone(240, 'sine', 0.18, 0.3, 220);
+  }
+
+  pop() { // item pickup
+    this.tone(520, 'sine', 0.05, 0.35, 340);
+  }
+
+  eat() {
+    this.noiseBurst(0.07, 500, 0.3);
+    setTimeout(() => this.noiseBurst(0.07, 450, 0.3), 120);
+    setTimeout(() => this.noiseBurst(0.07, 480, 0.3), 240);
+    setTimeout(() => this.tone(680, 'sine', 0.1, 0.25, 120), 380);
+  }
+
+  hurt() {
+    this.tone(190, 'square', 0.12, 0.4, -70);
+    this.noiseBurst(0.08, 800, 0.2);
+  }
+
+  death() {
+    this.tone(300, 'sawtooth', 0.25, 0.4, -180);
+    setTimeout(() => this.tone(220, 'sawtooth', 0.3, 0.4, -140), 200);
+    setTimeout(() => this.tone(160, 'sawtooth', 0.5, 0.4, -100), 420);
+  }
+
+  mobHurt(kind = 'gloomer') {
+    if (kind === 'gloomer') this.tone(120, 'sawtooth', 0.2, 0.3, -30);
+    else this.tone(420, 'square', 0.12, 0.25, -120);
+  }
+
+  mobDeath(kind = 'gloomer') {
+    if (kind === 'gloomer') this.tone(140, 'sawtooth', 0.4, 0.35, -100);
+    else this.tone(380, 'square', 0.3, 0.3, -220);
+  }
+
+  groan() {
+    this.tone(95 + Math.random() * 30, 'sawtooth', 0.5, 0.18, -20);
+  }
+
+  swing() {
+    this.noiseBurst(0.06, 3000, 0.08);
+  }
+
+  toolBreak() {
+    this.tone(700, 'square', 0.08, 0.4, -300);
+    setTimeout(() => this.noiseBurst(0.15, 1200, 0.3), 60);
+  }
+
+  levelTool() {
+    this.tone(880, 'sine', 0.1, 0.3);
   }
 }

@@ -1,21 +1,34 @@
-// Voxelheim — main entry. Owns the render loop, input, and the glue
-// between world, player, sky, UI, chat, saves and the P2P network.
+// Terravale — main entry v2. Owns the render loop, input, and the glue
+// between world, lighting, player, survival systems, mobs, UI, chat,
+// saves and the P2P network.
 
 import * as THREE from 'three';
-import { B, BLOCKS, DEFAULT_HOTBAR, isReplaceable, isCross, isSolid } from './blocks.js';
-import { buildAtlas, TILE_INDEX } from './textures.js';
+import { B, BLOCKS, isReplaceable, isCross, dropsFor } from './blocks.js';
+import { buildAtlas, TILE_INDEX, getCrackTextures } from './textures.js';
 import { resolveFaceTiles } from './blocks.js';
 import { World, HEIGHT } from './world.js';
 import { CHUNK } from './worldgen.js';
+import { Lighting } from './lighting.js';
 import { ChunkManager } from './chunks.js';
 import { Player } from './player.js';
 import { Sky } from './sky.js';
 import { Sfx } from './sounds.js';
 import { UI } from './ui.js';
 import { Chat } from './chat.js';
+import { Hud } from './hud.js';
 import { Avatars } from './avatars.js';
+import { Mobs, entityRaycast } from './mobs.js';
+import { Drops } from './drops.js';
+import { HandView } from './handview.js';
+import { Inventory } from './inventory.js';
+import { Stats } from './stats.js';
 import { Net, makeRoomCode } from './network.js';
 import { saveWorld, loadWorld, savePrefs, loadPrefs } from './save.js';
+import { settings } from './settings.js';
+import { runCommand, commandSuggestions } from './commands.js';
+import { canHarvest, isFood, isBlockItem, nameOf, ITEMS } from './items.js';
+import { tickFurnace } from './containers.js';
+import { itemIcon } from './sprites.js';
 
 // ---------- boot ----------
 
@@ -30,14 +43,16 @@ renderer.domElement.classList.add('game');
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.08, 900);
+const camera = new THREE.PerspectiveCamera(settings.get('fov'), window.innerWidth / window.innerHeight, 0.08, 900);
+scene.add(camera); // so the hand view (child of camera) renders
 
 buildAtlas();
 resolveFaceTiles(TILE_INDEX);
 
 const sfx = new Sfx();
+sfx.setVolumes(settings.get('master'), settings.get('sfx'));
 
-// block highlight wireframe
+// block highlight + mining crack overlay
 const highlight = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002, 1.002, 1.002)),
   new THREE.LineBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.7 })
@@ -45,46 +60,116 @@ const highlight = new THREE.LineSegments(
 highlight.visible = false;
 scene.add(highlight);
 
-// ---------- game state ----------
+const crackTextures = getCrackTextures();
+const crackMesh = new THREE.Mesh(
+  new THREE.BoxGeometry(1.004, 1.004, 1.004),
+  new THREE.MeshBasicMaterial({ map: crackTextures[0], transparent: true, depthWrite: false })
+);
+crackMesh.visible = false;
+crackMesh.renderOrder = 3;
+scene.add(crackMesh);
+
+// ---------- state ----------
 
 let state = 'menu'; // menu | connecting | playing
-let world = null, cm = null, player = null, sky = null, avatars = null, net = null, chat = null, ui = null;
-let myName = 'Wanderer', myColor = '#7ddb5a';
-let hostCode = null;
-let expectUnlock = false;   // pointer unlock we initiated (picker)
-let holdBtn = null, nextActionAt = 0;
-let lastPosSend = 0, lastSaveAt = 0, lastTimeSync = 0;
+let world = null, lighting = null, cm = null, player = null, sky = null;
+let avatars = null, mobs = null, drops = null, hand = null, net = null;
+let inventory = null, stats = null, ui = null, chat = null, hud = null;
+let myName = 'Wanderer', myColor = '#7ddb5a', myGamemode = 'survival';
+let expectUnlock = false;
+let holdBtn = null, nextActionAt = 0, attackCd = 0, placeCd = 0, hitSoundT = 0;
+let lastPosSend = 0, lastSaveAt = 0, lastTimeSync = 0, lastEntitySync = 0, lastMobSync = "", lastDropSync = "";
+let lastCstate = 0, furnaceUiTick = 0;
 let frames = 0, fpsTime = 0, fps = 0;
-let wasInWater = false;
+let pickupReqT = new Map();
+let deathDropped = false;
 const keys = new Set();
+const actions = new Set();
 
-// ---------- ui + chat ----------
+// title panorama world
+let panWorld = null, panCm = null, panT = 0;
+
+// ---------- prefs ----------
+
+const prefs = loadPrefs();
+myName = prefs.name || ('Wanderer' + Math.floor(1000 + Math.random() * 9000));
+myColor = prefs.color || freshColor();
+savePrefs({ name: myName, color: myColor });
+
+function freshColor() {
+  const c = new THREE.Color().setHSL(Math.random(), 0.62, 0.55);
+  return '#' + c.getHexString();
+}
+
+// ---------- UI + chat + hud ----------
 
 ui = new UI({
-  onCreate: () => startHost(null),
+  onCreate: ({ mode, seed }) => startHost(null, { mode, seed }),
   onJoin: (code) => startClient(code),
   onResumeHost: (code) => startHost(code),
   onCancelConnect: () => cancelConnect(),
-  onChatSubmit: (text) => sendChat(text),
+  onChatSubmit: (text) => {
+    if (text.startsWith('/')) {
+      net?.sendCommand(text);
+    } else {
+      net?.sendChat(text, myName, myColor);
+    }
+  },
+  onCommandComplete: (text) => {
+    if (text.startsWith('/') && !text.includes(' ')) {
+      const sugg = commandSuggestions(text);
+      if (sugg.length === 1) return sugg[0] + ' ';
+      if (sugg.length > 1) {
+        // common prefix
+        let p = sugg[0];
+        for (const s of sugg) while (!s.startsWith(p)) p = p.slice(0, -1);
+        return p;
+      }
+      return null;
+    }
+    // complete player names
+    const words = text.split(' ');
+    const last = words[words.length - 1].toLowerCase();
+    if (last) {
+      for (const p of net ? net.roster() : []) {
+        if (p.name.toLowerCase().startsWith(last)) {
+          words[words.length - 1] = p.name;
+          return words.join(' ');
+        }
+      }
+    }
+    return null;
+  },
   onPauseResume: () => requestLock(),
   onQuit: () => quitToMenu(true),
-  onSoundToggle: () => {
-    sfx.setMuted(!sfx.muted);
-    ui.setSoundLabel(sfx.muted);
+  onDeathRespawn: () => respawn(),
+  onDeathTitle: () => { ui.hideDeath(); quitToMenu(true); },
+  onOptionsBack: () => {
+    ui.hideOptions();
+    if (ui.optionsFrom === 'pause' && state === 'playing') ui.showPause(pauseMeta());
+    // from title: nothing else to do
   },
-  onRenderDistance: (r) => {
-    if (cm) { cm.setRadius(r); sky.setRenderDistance(r * CHUNK); cm.lastCenter = null; }
+  onSettingsChange: (key) => applySettings(key),
+  onScreenClose: (mode, posKey, container) => {
+    // sync containers back
+    if (posKey && container && (mode === 'chest' || mode === 'furnace')) {
+      const data = container.type === 'chest' ? container.slots : { in: container.in, fuel: container.fuel, out: container.out };
+      if (net?.mode === 'host') net.hostCstate(posKey, data);
+      else if (net?.mode === 'client') net.sendCstate(posKey, data);
+    }
+    requestLock();
   },
-  onPickerPick: (id) => {
-    ui.setSlotBlock(ui.selected, id);
-    ui.closePicker();
+  onInventoryChange: () => {
+    hand.setHeld(inventory.held());
+    hud.updateHotbar(inventory, inventory.selected);
   },
-  onPickerVisibility: (open) => {
-    if (open) {
-      expectUnlock = true;
-      document.exitPointerLock();
+  onTossCursor: (stack) => {
+    if (!player || stats?.dead) return;
+    const dir = player.lookVector(new THREE.Vector3());
+    if (net?.mode === 'host' || !net) {
+      drops.spawn(stack, player.pos.x + dir.x, player.pos.y + 1.4, player.pos.z + dir.z, new THREE.Vector3(dir.x * 4, 2, dir.z * 4));
     } else {
-      requestLock();
+      net.clientSend({ t: 'drop', id: stack.id, count: stack.count, dur: stack.dur });
     }
   },
 });
@@ -93,48 +178,81 @@ chat = new Chat({
   logEl: document.getElementById('chat'),
   inputWrap: document.getElementById('chat-input-wrap'),
   inputEl: document.getElementById('chat-input'),
-  onSubmit: (text) => sendChat(text),
+  onSubmit: (text) => {
+    if (text.startsWith('/')) net?.sendCommand(text);
+    else net?.sendChat(text, myName, myColor);
+  },
+  onCommandComplete: null,
 });
+// wire the same completion helper into chat
+chat.onCommandComplete = (text) => ui.cb.onCommandComplete(text);
 
-const prefs = loadPrefs();
-if (prefs.name) document.getElementById('name-input').value = prefs.name;
+hud = new Hud();
+hud.onSlotClick = (i) => { inventory.select(i); hud.updateHotbar(inventory, inventory.selected); hud.flashHeldName(inventory.held()); hand.setHeld(inventory.held()); };
 
-ui.showMenu();
+ui.showTitle(); // render splash + saved worlds on first load
+
+function pauseMeta() {
+  if (!net) return '';
+  const online = Math.max(1, net.players.size); // yourself included
+  return `Room ${net.code} · ${myGamemode} · ${online} online`;
+}
+
+// ---------- title panorama ----------
+
+function startPanorama() {
+  panWorld = new World('panorama' + Math.floor(Math.random() * 99999));
+  panCm = new ChunkManager(panWorld, scene, null);
+  panCm.setRadius(2);
+  const s = panWorld.spawnPoint();
+  panCm._panCenter = [s.x, s.z];
+  panT = 0;
+}
+
+function stopPanorama() {
+  if (panCm) { panCm.dispose(); panCm = null; }
+  panWorld = null;
+}
 
 // ---------- flows ----------
 
-function freshColor() {
-  const c = new THREE.Color().setHSL(Math.random(), 0.62, 0.55);
-  return '#' + c.getHexString();
-}
-
-function startHost(resumeCode) {
-  myName = ui.getName();
-  myColor = freshColor();
-  savePrefs({ name: myName });
+function startHost(resumeCode, opts = {}) {
+  myName = prefs.name || myName;
+  myColor = prefs.color || myColor;
 
   const code = resumeCode ?? makeRoomCode();
   const saved = resumeCode ? loadWorld(resumeCode) : null;
-  const seed = saved?.seed ?? 'w' + Math.random().toString(36).slice(2, 10);
+  const mode = saved?.mode ?? opts.mode ?? 'survival';
+  const seed = saved?.seed ?? (opts.seed && opts.seed.length ? opts.seed : 'w' + Math.random().toString(36).slice(2, 10));
 
   world = new World(seed);
+  world.gamemode = mode;
+  world.difficulty = saved?.difficulty ?? 'normal';
   if (saved?.edits) world.loadEdits(saved.edits);
+  if (saved?.containers) world.loadContainers(saved.containers);
+  myGamemode = mode;
 
-  setupGameCommon();
+  setupGame();
 
   state = 'connecting';
   ui.showConnecting('Starting room ' + code + '…');
 
   net = new Net(netHandlers());
-  net.hostWorld(code, seed, world.editsArray(), saved?.time ?? 0.32, myName, myColor);
-  hostCode = code;
+  net.hostWorld(code, {
+    seed,
+    edits: world.editsArray(),
+    time: saved?.time ?? 0.30,
+    gamemode: mode,
+    difficulty: world.difficulty,
+    spawn: world.spawnPoint(),
+    containers: world.serializeContainers(),
+  }, myName, myColor);
 }
 
 function startClient(code) {
   if (!code || code.length < 4) { ui.menuError('Enter the 5-letter room code first.'); return; }
-  myName = ui.getName();
-  myColor = freshColor();
-  savePrefs({ name: myName });
+  myName = prefs.name || myName;
+  myColor = prefs.color || myColor;
 
   state = 'connecting';
   ui.menuError('');
@@ -144,33 +262,81 @@ function startClient(code) {
   net.joinWorld(code, myName, myColor);
 }
 
-function setupGameCommon() {
+function setupGame() {
+  stopPanorama();
   player = new Player(world);
-  cm = new ChunkManager(world, scene);
+  player.gamemodeOverride = myGamemode;
+  player.autoJump = settings.get('autoJump');
+  lighting = new Lighting(world);
+  cm = new ChunkManager(world, scene, lighting);
   sky = new Sky(scene, camera);
   avatars = new Avatars(scene);
-  cm.setRadius(+document.getElementById('render-dist').value);
-  sky.setRenderDistance(cm.radius * CHUNK);
+  mobs = new Mobs(scene, world, lighting);
+  mobs.isHost = net === null || net.mode === 'host';
+  mobs.difficulty = world.difficulty;
+  mobs.onPlayerDamage = onMobAttackPlayer;
+  mobs.onMobDeath = (m, dropStacks) => {
+    for (const s of dropStacks) drops.spawn(s, m.pos.x, m.pos.y + 0.5, m.pos.z);
+  };
+  drops = new Drops(scene, world);
+  drops.isHost = mobs.isHost;
+  hand = new HandView(camera);
+  inventory = new Inventory();
+  ui.setPlayerInv(inventory);
+  stats = new Stats(world);
+  stats.player = player;
+  stats.onDeath = onDeath;
+  stats.onDamage = () => { sfx.hurt(); flashHurt(); };
+  player.onLand = (fall) => stats.fallDamage(fall);
+
+  cm.setRadius(settings.get('renderDist'));
+  sky.setRenderDistance(settings.get('renderDist') * CHUNK);
+  sky.setCloudsVisible(settings.get('clouds'));
+  camera.fov = settings.get('fov');
+  camera.updateProjectionMatrix();
+
   // debug/testing handle
-  window.__game = { get player() { return player; }, get world() { return world; }, get ui() { return ui; }, get net() { return net; }, get sky() { return sky; } };
+  window.__game = {
+    get player() { return player; }, get world() { return world; }, get ui() { return ui; },
+    get net() { return net; }, get sky() { return sky; }, get inventory() { return inventory; },
+    get stats() { return stats; }, get mobs() { return mobs; }, get drops() { return drops; },
+    get lighting() { return lighting; }, get cm() { return cm; }, get scene() { return scene; },
+  };
   window.__testAction = (btn) => doAction(btn);
+  window.__testGive = (id, count) => { inventory.add({ id, count }); hud.updateHotbar(inventory, inventory.selected); };
 }
 
-function enterGame(savedPos) {
-  if (savedPos && savedPos.length === 3 && savedPos.every((v) => typeof v === 'number' && isFinite(v))) {
-    player.pos.set(savedPos[0], savedPos[1], savedPos[2]);
+function enterGame(saved) {
+  if (saved?.pos && saved.pos.length === 3 && saved.pos.every((v) => typeof v === 'number' && isFinite(v))) {
+    player.pos.set(saved.pos[0], saved.pos[1], saved.pos[2]);
+    if (typeof saved.yaw === 'number') player.yaw = saved.yaw;
   }
-  // pre-build the spawn chunk so there's something under your feet
+  if (saved?.inv) inventory.load(saved.inv);
+  if (saved?.stats) {
+    stats.hp = saved.stats.hp ?? 20;
+    stats.hunger = saved.stats.hunger ?? 20;
+    stats.air = saved.stats.air ?? 10;
+  }
+
   cm.buildChunk(Math.floor(player.pos.x / CHUNK), Math.floor(player.pos.z / CHUNK));
+
+  // clear any roll/lookAt residue from the title panorama
+  camera.rotation.set(0, 0, 0);
+  camera.rotation.order = 'YXZ';
 
   state = 'playing';
   ui.showHud();
-  ui.buildHotbar([...DEFAULT_HOTBAR]);
-  ui.buildPicker();
   ui.setRoom(net.code, net.mode);
   ui.setHint(true);
-  chat.add({ text: 'Welcome to Voxelheim! Break with left click, place with right.', system: true });
-  chat.add({ text: 'Share the room code to play with friends.', system: true });
+  if (myGamemode === 'creative' && !saved) {
+    for (const id of [B.GRASS, B.STONE, B.OAK_PLANKS, B.OAK_LOG, B.GLASS, B.TORCH, B.BRICKS, B.WOOL_RED, B.GLOWSTONE]) {
+      inventory.add({ id, count: 64 });
+    }
+  }
+  hud.updateHotbar(inventory, inventory.selected);
+  hand.setHeld(inventory.held());
+  chat.add({ text: 'Welcome to Terravale! Punch a tree to get started.', system: true });
+  chat.add({ text: 'T chat · E inventory · /help commands · share the room code to play together.', system: true });
 }
 
 function cancelConnect() {
@@ -178,7 +344,8 @@ function cancelConnect() {
   net = null;
   teardownGame();
   state = 'menu';
-  ui.showMenu();
+  ui.showTitle();
+  startPanoramaSoon();
 }
 
 function quitToMenu(save) {
@@ -187,17 +354,28 @@ function quitToMenu(save) {
   net = null;
   teardownGame();
   state = 'menu';
-  ui.showMenu();
+  ui.showTitle();
+  ui.hideDeath();
+  startPanoramaSoon();
+}
+
+let panoramaTimer = null;
+function startPanoramaSoon() {
+  clearTimeout(panoramaTimer);
+  panoramaTimer = setTimeout(() => { if (state === 'menu') startPanorama(); }, 400);
 }
 
 function teardownGame() {
   if (cm) { cm.dispose(); cm = null; }
   if (avatars) { avatars.clear(); avatars = null; }
+  if (mobs) { mobs.clear(); mobs = null; }
+  if (drops) { drops.clear(); drops = null; }
   highlight.visible = false;
+  crackMesh.visible = false;
   keys.clear();
   holdBtn = null;
+  deathDropped = false;
   document.exitPointerLock?.();
-  hostCode = null;
 }
 
 // ---------- network handlers ----------
@@ -206,21 +384,39 @@ function netHandlers() {
   return {
     onStatus: (s) => ui.setConnectStatus(s),
 
+    onWorldSnapshot: () => ({
+      seed: world.seed,
+      edits: world.editsArray(),
+      time: sky.getTime(),
+      gamemode: world.gamemode,
+      difficulty: world.difficulty,
+      spawn: world.spawnPoint(),
+      containers: world.serializeContainers(),
+    }),
+
     onReady: (code) => {
       const saved = loadWorld(code);
-      enterGame(saved?.pos);
+      enterGame(saved);
       chat.add({ text: 'Room ' + code + ' is live. You are the host.', system: true });
       sfx.joinChime();
     },
 
     onInit: (msg) => {
       world = new World(msg.seed);
-      world.applyEditsArray(msg.edits);
-      setupGameCommon();
+      world.gamemode = msg.gamemode;
+      world.difficulty = msg.difficulty ?? 'normal';
+      world.loadEdits(serializeEdits(msg.edits));
+      world.loadContainers(msg.containers);
+      myGamemode = msg.gamemode;
+      setupGame();
       sky.setTime(msg.time);
       enterGame(null);
-      for (const p of msg.players) avatars.add(p.id, p.name, p.color, null);
-      ui.updatePlayerList(net.roster(), net.myId);
+      // register the whole roster (host + other clients) locally too
+      for (const p of msg.players) {
+        net.players.set(p.id, { name: p.name, color: p.color, conn: null, pos: null });
+        avatars.add(p.id, p.name, p.color, null);
+      }
+      ui.updatePlayerList([...net.roster(), { id: net.myId, name: myName, color: myColor }], net.myId);
       chat.add({ text: 'Joined room ' + net.code + '.', system: true });
       sfx.joinChime();
     },
@@ -229,40 +425,128 @@ function netHandlers() {
       avatars.add(id, name, color, null);
       chat.add({ text: name + ' joined the world.', system: true });
       sfx.joinChime();
-      ui.updatePlayerList(net.roster(), net.myId);
+      ui.updatePlayerList([...net.roster(), { id: net.myId, name: myName, color: myColor }], net.myId);
     },
 
     onLeave: (id, name) => {
       avatars.remove(id);
       chat.add({ text: (name ?? 'Someone') + ' left.', system: true });
       sfx.leaveChime();
-      ui.updatePlayerList(net.roster(), net.myId);
+      ui.updatePlayerList([...net.roster(), { id: net.myId, name: myName, color: myColor }], net.myId);
     },
 
     onPos: (id, s) => avatars.setState(id, s),
 
     onEdit: (id, x, y, z, b) => {
+      const prev = world.getBlock(x, y, z);
       world.setBlock(x, y, z, b);
+      if (net.mode === 'host' && b === B.AIR && prev !== B.AIR && myGamemode !== 'creative') {
+        // host spawns drops on behalf of remote breakers
+        for (const st of dropsFor(prev)) drops.spawn(st, x + 0.5, y + 0.3, z + 0.5);
+      }
+      if (net.mode === 'host' && b === B.AIR) world.removeContainer(x, y, z);
       if (player) {
         const d = Math.hypot(x - player.pos.x, y - player.pos.y, z - player.pos.z);
-        if (d < 28) sfx.place((BLOCKS[b] ?? BLOCKS[1]).sound);
+        if (d < 24) sfx.place((BLOCKS[b] ?? BLOCKS[1]).sound);
       }
     },
 
-    onChat: (id, name, color, text) => {
-      chat.add({ name, color, text });
+    onChat: (uid, id, name, color, text) => {
+      chat.add({ uid, name, color, text });
       if (id !== net.myId) sfx.chatPing();
     },
 
     onTime: (t) => sky?.setTime(t),
+    onMobs: (s) => mobs?.applyStates(s),
+    onDrops: (s) => drops?.applyStates(s),
+
+    onDamage: (dmg, kx, kz, cause) => {
+      if (!stats || stats.dead) return;
+      stats.damage(dmg, cause ?? 'a gloomer');
+      if (kx || kz) {
+        player.vel.x += kx * 7;
+        player.vel.z += kz * 7;
+        player.vel.y = Math.max(player.vel.y, 4.5);
+      }
+    },
+
+    onGive: (id, count) => {
+      if (id === -1) {
+        inventory.clear();
+      } else {
+        inventory.add({ id, count });
+        sfx.pop();
+      }
+      hud.updateHotbar(inventory, inventory.selected);
+      hand.setHeld(inventory.held());
+    },
+
+    onTp: (x, y, z) => {
+      player.pos.set(x, y, z);
+      player.vel.set(0, 0, 0);
+    },
+
+    onGamemode: (mode) => {
+      setGamemodeLocal(mode);
+      chat.add({ text: 'Game mode set to ' + mode, system: true });
+    },
+
+    onCmdout: (text) => chat.add({ text, system: true }),
+
+    onContainerState: (k, data) => {
+      const c = world.containers.get(k);
+      if (!c) return;
+      if (c.type === 'chest') c.slots = data;
+      else {
+        // keep authoritative burn/cook timers; take the item slots
+        c.in = data.in; c.fuel = data.fuel; c.out = data.out;
+      }
+      if (ui.isScreenOpen() && ui.screenPos === k) ui.renderScreen();
+    },
+
+    onDifficulty: (d) => {
+      world.difficulty = d;
+      mobs.difficulty = d;
+    },
+
+    onPickupRequest: (connId, dropId) => {
+      // host validates loosely and grants
+      const e = drops.map.get(dropId);
+      if (!e) return;
+      const p = net.players.get(connId);
+      if (p?.pos) {
+        const d = Math.hypot(p.pos.x - e.pos.x, p.pos.y - e.pos.y, p.pos.z - e.pos.z);
+        if (d > 4) return;
+      }
+      drops.remove(dropId);
+      net.hostGive(connId, e.stack);
+    },
+
+    onMobHit: (connId, mobId, dmg, kx, kz) => {
+      applyMobHit(mobId, dmg, kx, kz, connId);
+    },
+
+    onDrop: (connId, itemId, count, dur) => {
+      // host spawns a dropped item at that player's position
+      const p = net.players.get(connId);
+      if (!p?.pos) return;
+      const st = { id: itemId, count };
+      if (dur !== undefined) st.dur = dur;
+      drops.spawn(st, p.pos.x, p.pos.y + 1.4, p.pos.z);
+    },
+
+    onCommand: (senderId, text) => {
+      runCommand(text, commandCtx(senderId));
+    },
 
     onError: (msg) => {
       net?.destroy();
       net = null;
       teardownGame();
       state = 'menu';
-      ui.showMenu();
+      ui.showTitle();
       ui.menuError(msg);
+      startPanoramaSoon();
     },
 
     onHostGone: () => {
@@ -272,51 +556,239 @@ function netHandlers() {
   };
 }
 
-// ---------- actions ----------
-
-function sendChat(text) {
-  // host sees its own message via hostChat's onChat; clients get no echo
-  if (net?.mode === 'client') chat.add({ name: myName, color: myColor, text });
-  net?.sendChat(text, myName, myColor);
-  sfx.chatPing();
+function serializeEdits(arr) {
+  return (arr || []).map(([x, y, z, id]) => `${x},${y},${z}:${id}`).join(';');
 }
 
-function doAction(btn) {
-  if (!player || !ui) return;
-  const hit = player.raycast();
-  if (!hit.hit) return;
+function commandCtx(senderId) {
+  return {
+    world,
+    sky,
+    senderId,
+    reply: (t) => {
+      if (senderId === 0 || senderId === net.myId) chat.add({ text: t.startsWith('§') ? t.slice(1) : t, system: true });
+      else net.hostCmdout(senderId, t.startsWith('§') ? t.slice(1) : t);
+    },
+    broadcast: (t) => net.broadcast({ t: 'chat', uid: net.chatUid++, id: -1, name: '', color: '#ffd27d', text: t }),
+    findPlayer: (name) => {
+      const q = name.toLowerCase();
+      for (const [id, p] of net.players) if (p.name.toLowerCase() === q) return { id, name: p.name, pos: p.pos };
+      return null;
+    },
+    setGamemode: (id, mode) => {
+      if (id === 0) setGamemodeLocal(mode);
+      else net.hostGamemode(id, mode);
+    },
+    give: (id, st) => {
+      if (id === 0) { inventory.add(st); hud.updateHotbar(inventory, inventory.selected); }
+      else net.hostGive(id, st);
+    },
+    clearInventory: (id) => {
+      if (id === 0) { inventory.clear(); hud.updateHotbar(inventory, inventory.selected); }
+      else net.hostGive(id, { id: -1, count: 0 }); // -1 = clear signal
+    },
+    teleport: (id, x, y, z) => {
+      if (id === 0) { player.pos.set(x, y, z); player.vel.set(0, 0, 0); }
+      else net.hostTp(id, x, y, z);
+    },
+    kill: (id) => {
+      if (id === 0) stats.damage(999, 'a command');
+      else net.hostDamage(id, 999, 0, 0, 'a command');
+    },
+    setTime: (t) => {
+      sky.setTime(t);
+      net.hostTime(t);
+    },
+    setDifficulty: (d) => {
+      world.difficulty = d;
+      mobs.difficulty = d;
+      net.hostDifficulty(d);
+    },
+  };
+}
 
-  if (btn === 0) {
-    const bl = BLOCKS[hit.id];
-    if (!bl?.breakable) {
-      sfx.tone(120, 'square', 0.06, 0.2);
-      return;
-    }
-    world.setBlock(hit.x, hit.y, hit.z, B.AIR);
-    net?.sendEdit(hit.x, hit.y, hit.z, B.AIR);
-    sfx.break_(bl.sound);
+function setGamemodeLocal(mode) {
+  myGamemode = mode;
+  player.gamemodeOverride = mode;
+  if (mode === 'survival') player.fly = false;
+  hud._lastStatsKey = '';
+  hud._lastHotbarKey = '';
+}
+
+// ---------- survival gameplay helpers ----------
+
+function onMobAttackPlayer(playerId, dmg, kx, kz) {
+  if (playerId === 0 || playerId === net.myId) {
+    if (!stats || stats.dead) return;
+    stats.damage(dmg, 'a gloomer');
+    player.vel.x += kx * 7;
+    player.vel.z += kz * 7;
+    player.vel.y = Math.max(player.vel.y, 4.5);
   } else {
-    const cur = ui.currentBlock();
-    if (!cur) return;
-    let tx = hit.px, ty = hit.py, tz = hit.pz;
-    if (isCross(hit.id)) { tx = hit.x; ty = hit.y; tz = hit.z; }
-    if (!isReplaceable(world.getBlock(tx, ty, tz))) return;
-    if (player.intersectsBlock(tx, ty, tz)) return;
-    world.setBlock(tx, ty, tz, cur);
-    net?.sendEdit(tx, ty, tz, cur);
-    sfx.place(BLOCKS[cur].sound);
+    net.hostDamage(playerId, dmg, kx, kz, 'a gloomer');
   }
 }
 
-function hostSave(force) {
-  if (net?.mode !== 'host' || !world || !sky || !player) return;
-  saveWorld(net.code, {
-    seed: world.seed,
-    editsStr: world.serializeEdits(),
-    time: sky.getTime(),
-    pos: [player.pos.x, player.pos.y, player.pos.z],
-    yaw: player.yaw,
-  });
+function applyMobHit(mobId, dmg, kx, kz, sourceId) {
+  const m = mobs.mobs.get(mobId);
+  const pos = m ? m.pos.clone() : null;
+  const res = mobs.hit(mobId, dmg, kx, kz, sourceId);
+  if (!res) return;
+  sfx.mobHurt();
+  if (res.died && pos) {
+    sfx.mobDeath();
+    for (const st of res.drops) drops.spawn(st, pos.x, pos.y + 0.5, pos.z);
+  }
+}
+
+function flashHurt() {
+  const el = document.getElementById('hurt-overlay');
+  el.style.opacity = 1;
+  setTimeout(() => (el.style.opacity = 0), 120);
+}
+
+function onDeath(cause) {
+  sfx.death();
+  document.exitPointerLock?.();
+  // scatter the inventory as drops
+  if (!deathDropped) {
+    deathDropped = true;
+    if (myGamemode !== 'creative') {
+      for (const s of inventory.slots) {
+        if (!s) continue;
+        if (drops.isHost) drops.spawn(s, player.pos.x, player.pos.y + 1, player.pos.z);
+      }
+    }
+    inventory.clear();
+  }
+  ui.showDeath(cause);
+}
+
+function respawn() {
+  stats.reset();
+  deathDropped = false;
+  player.spawn();
+  ui.hideDeath();
+  requestLock();
+}
+
+// ---------- block actions ----------
+
+function doAction(btn) {
+  if (!player || !ui || stats?.dead) return;
+
+  const eye = player.eyePosition(new THREE.Vector3());
+  const dir = player.lookVector(new THREE.Vector3());
+
+  // attack first: mobs in reach before blocks
+  if (btn === 0 && tryAttack(eye, dir)) return;
+
+  const hit = player.raycast();
+  if (!hit.hit) {
+    if (btn === 0) hand.swing();
+    return;
+  }
+
+  if (btn === 0) {
+    // creative: instant break
+    doBreak(hit);
+    return;
+  }
+
+  // right click: eat / interact / place
+  const held = inventory.held();
+  const targetBlock = BLOCKS[hit.id];
+
+  if (held && isFood(held.id) && stats.hunger < 20) {
+    const ate = stats.tryEat(held);
+    if (ate) {
+      inventory.consumeHeldOne();
+      sfx.eat();
+      hud.updateHotbar(inventory, inventory.selected);
+      hand.setHeld(inventory.held());
+      return;
+    }
+  }
+
+  if (targetBlock?.interact) {
+    const c = world.ensureContainer(hit.x, hit.y, hit.z, targetBlock.interact);
+    expectUnlock = true;
+    document.exitPointerLock();
+    ui.openScreen(targetBlock.interact, c, hit.x + ',' + hit.y + ',' + hit.z);
+    sfx.place('wood');
+    return;
+  }
+
+  if (!held || !isBlockItem(held.id)) { hand.swing(); return; }
+  let tx = hit.px, ty = hit.py, tz = hit.pz;
+  if (isCross(hit.id)) { tx = hit.x; ty = hit.y; tz = hit.z; }
+  if (!isReplaceable(world.getBlock(tx, ty, tz))) return;
+  if (player.intersectsBlock(tx, ty, tz)) return;
+  // torches need something under them
+  if (held.id === B.TORCH && !BLOCKS[world.getBlock(tx, ty - 1, tz)]?.solid) return;
+
+  world.setBlock(tx, ty, tz, held.id);
+  net?.sendEdit(tx, ty, tz, held.id);
+  sfx.place(BLOCKS[held.id].sound);
+  hand.swing();
+  if (myGamemode === 'survival') {
+    inventory.consumeHeldOne();
+    hud.updateHotbar(inventory, inventory.selected);
+    hand.setHeld(inventory.held());
+  }
+}
+
+// one swing at a nearby mob; returns true if something was hit
+function tryAttack(eye, dir) {
+  if (attackCd > 0) return false;
+  const mobHit = entityRaycast(eye, dir, mobs.mobs, 3.6);
+  if (!mobHit) return false;
+  const blockHit = player.raycast();
+  if (blockHit.hit && blockHit.dist < mobHit.dist) return false;
+
+  attackCd = 0.5;
+  hand.swing();
+  sfx.swing();
+  const held = inventory.held();
+  const dmg = held && ITEMS[held.id]?.damage ? ITEMS[held.id].damage : 1;
+  const kx = dir.x, kz = dir.z;
+  if (net.mode === 'host') {
+    applyMobHit(mobHit.id, dmg, kx, kz, net.myId);
+  } else {
+    net.sendMobHit(mobHit.id, dmg, kx, kz);
+    sfx.mobHurt();
+  }
+  if (held && ITEMS[held.id]?.tool && inventory.damageHeldTool()) sfx.toolBreak();
+  return true;
+}
+
+function doBreak(hit) {
+  const bl = BLOCKS[hit.id];
+  if (!bl?.breakable) {
+    sfx.tone(120, 'square', 0.06, 0.2);
+    return;
+  }
+  const held = inventory.held();
+  const creative = myGamemode === 'creative';
+
+  world.setBlock(hit.x, hit.y, hit.z, B.AIR);
+  net?.sendEdit(hit.x, hit.y, hit.z, B.AIR);
+  world.removeContainer(hit.x, hit.y, hit.z);
+  sfx.break_(bl.sound);
+  hand.swing();
+
+  if (!creative) {
+    // drops (host spawns for everyone)
+    if (drops.isHost) {
+      if (canHarvest(held, hit.id)) {
+        for (const st of dropsFor(hit.id)) drops.spawn(st, hit.x + 0.5, hit.y + 0.3, hit.z + 0.5);
+      }
+    }
+    if (held && ITEMS[held.id]?.tool && bl.hardness > 0.1) {
+      if (inventory.damageHeldTool()) sfx.toolBreak();
+    }
+  }
+  hud.updateHotbar(inventory, inventory.selected);
 }
 
 // ---------- input ----------
@@ -326,12 +798,15 @@ const canvas = renderer.domElement;
 function requestLock() {
   if (state !== 'playing') return;
   ui.hidePause();
-  try { canvas.requestPointerLock(); } catch { /* needs gesture */ }
+  try {
+    const p = canvas.requestPointerLock();
+    if (p && p.catch) p.catch(() => { /* needs a user gesture; hint stays visible */ });
+  } catch { /* needs gesture */ }
 }
 
 canvas.addEventListener('click', () => {
   sfx.resume();
-  if (state === 'playing' && !ui.isPickerOpen() && !chat.isOpen() && document.pointerLockElement !== canvas) {
+  if (state === 'playing' && !ui.isScreenOpen() && !chat.isOpen() && document.pointerLockElement !== canvas) {
     requestLock();
   }
 });
@@ -345,77 +820,125 @@ document.addEventListener('pointerlockchange', () => {
     keys.clear();
     holdBtn = null;
     if (expectUnlock) { expectUnlock = false; return; }
-    if (!ui.isPickerOpen() && !chat.isOpen()) ui.showPause();
+    if (!ui.isScreenOpen() && !chat.isOpen()) ui.showPause(pauseMeta());
   }
 });
 
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement === canvas && player && !chat.isOpen()) {
-    player.look(e.movementX, e.movementY);
+    player.look(e.movementX, e.movementY, settings.get('sens'), settings.get('invertY'));
   }
 });
 
 document.addEventListener('mousedown', (e) => {
-  if (document.pointerLockElement !== canvas || state !== 'playing' || chat.isOpen()) return;
-  if (e.button === 0 || e.button === 2) {
-    holdBtn = e.button;
-    doAction(e.button);
-    nextActionAt = performance.now() + 280;
+  if (document.pointerLockElement !== canvas || state !== 'playing' || chat.isOpen() || stats?.dead) return;
+  if (e.button === 0) {
+    const eye = player.eyePosition(new THREE.Vector3());
+    const dir = player.lookVector(new THREE.Vector3());
+    if (!tryAttack(eye, dir)) {
+      holdBtn = 0; // survival mining / creative breaking handled in the loop
+      if (myGamemode === 'creative') {
+        doAction(0);
+        nextActionAt = performance.now() + 270;
+      }
+    }
+  } else if (e.button === 2) {
+    holdBtn = 2;
+    doAction(2);
+    nextActionAt = performance.now() + 270;
   }
 });
 
-document.addEventListener('mouseup', () => (holdBtn = null));
+document.addEventListener('mouseup', () => { holdBtn = null; player && (player.mining = null); });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('wheel', (e) => {
   if (state !== 'playing' || document.pointerLockElement !== canvas) return;
   const dir = Math.sign(e.deltaY);
-  ui.selectSlot((ui.selected + dir + 9) % 9);
+  inventory.select((inventory.selected + dir + 9) % 9);
+  hud.updateHotbar(inventory, inventory.selected);
+  hud.flashHeldName(inventory.held());
+  hand.setHeld(inventory.held());
 }, { passive: true });
 
 window.addEventListener('keydown', (e) => {
+  // bind capture for options
+  if (ui.bindListening) {
+    e.preventDefault();
+    if (e.code !== 'Escape') {
+      settings.setBind(ui.bindListening, e.code);
+    }
+    ui.stopBindListening();
+    ui.renderOptionsTab('controls');
+    return;
+  }
+
   if (state !== 'playing' || chat.isOpen()) return;
 
-  if (e.code === 'KeyE') {
-    e.preventDefault();
-    if (ui.isPickerOpen()) ui.closePicker();
-    else ui.openPicker();
+  // container screen keys
+  if (ui.isScreenOpen()) {
+    if (e.code === 'KeyE' || e.code === 'Escape') {
+      e.preventDefault();
+      ui.closeScreen();
+    } else if (e.code.startsWith('Digit')) {
+      const n = +e.code.slice(5);
+      if (n >= 1 && n <= 9) {
+        ui.hoverSwap(n - 1);
+        inventory.select(n - 1);
+        hand.setHeld(inventory.held());
+      }
+    }
     return;
   }
-  if (e.code === 'Escape' && ui.isPickerOpen()) {
-    ui.closePicker();
-    return;
-  }
-  if (e.code === 'KeyT') {
+
+  const action = settings.actionFor(e.code);
+
+  if (e.code === 'KeyT' || action === 'chat') {
     e.preventDefault();
     chat.openInput();
     return;
   }
-  if (e.code === 'Tab') {
+  if (action === 'inventory') {
+    e.preventDefault();
+    expectUnlock = true;
+    document.exitPointerLock();
+    ui.openScreen(myGamemode === 'creative' ? 'creative' : 'inventory');
+    return;
+  }
+  if (action === 'playerList') {
     e.preventDefault();
     ui.showPlayerList(true);
     return;
   }
-  if (e.code === 'F3') {
+  if (action === 'debug') {
     e.preventDefault();
     ui.toggleDebug();
     return;
   }
   if (e.code.startsWith('Digit')) {
     const n = +e.code.slice(5);
-    if (n >= 1 && n <= 9) ui.selectSlot(n - 1);
+    if (n >= 1 && n <= 9) {
+      inventory.select(n - 1);
+      hud.updateHotbar(inventory, inventory.selected);
+      hud.flashHeldName(inventory.held());
+      hand.setHeld(inventory.held());
+    }
     return;
   }
-  if (e.code === 'Space' && document.pointerLockElement === canvas) {
-    const flew = player?.onSpace();
-    if (flew !== null && flew !== undefined) sfx.flyWhoosh();
+  if (action === 'drop') {
+    dropHeldItem();
+    return;
   }
-  keys.add(e.code);
+  if (action === 'jump' && document.pointerLockElement === canvas) {
+    const flew = player?.onSpace();
+    if (flew) sfx.flyWhoosh();
+  }
+  if (action) keys.add(e.code);
 });
 
 window.addEventListener('keyup', (e) => {
   keys.delete(e.code);
-  if (e.code === 'Tab') ui.showPlayerList(false);
+  if (settings.actionFor(e.code) === 'playerList') ui.showPlayerList(false);
 });
 
 window.addEventListener('resize', () => {
@@ -427,9 +950,68 @@ window.addEventListener('resize', () => {
 window.addEventListener('beforeunload', () => hostSave(true));
 document.addEventListener('visibilitychange', () => { if (document.hidden) hostSave(true); });
 
+function dropHeldItem() {
+  const s = inventory.held();
+  if (!s || stats?.dead) return;
+  const one = { id: s.id, count: 1, ...(s.dur !== undefined ? { dur: s.dur } : {}) };
+  s.count--;
+  if (s.count <= 0) inventory.slots[inventory.selected] = null;
+  const dir = player.lookVector(new THREE.Vector3());
+  if (net?.mode === 'host') {
+    drops.spawn(one, player.pos.x + dir.x, player.pos.y + 1.4, player.pos.z + dir.z, new THREE.Vector3(dir.x * 5, 2.4, dir.z * 5));
+  } else {
+    net.clientSend({ t: 'drop', id: one.id, count: one.count, dur: one.dur });
+  }
+  hud.updateHotbar(inventory, inventory.selected);
+  hand.setHeld(inventory.held());
+}
+
+// ---------- settings live application ----------
+
+function applySettings(key) {
+  if (key === 'renderDist' && cm) {
+    cm.setRadius(settings.get('renderDist'));
+    sky?.setRenderDistance(settings.get('renderDist') * CHUNK);
+    cm.lastCenter = null;
+  } else if (key === 'fov') {
+    camera.fov = settings.get('fov');
+    camera.updateProjectionMatrix();
+  } else if (key === 'clouds') {
+    sky?.setCloudsVisible(settings.get('clouds'));
+  } else if (key === 'master' || key === 'sfx') {
+    sfx.setVolumes(settings.get('master'), settings.get('sfx'));
+  } else if (key === 'autoJump') {
+    if (player) player.autoJump = settings.get('autoJump');
+  } else if (key === 'fullscreen') {
+    if (settings.get('fullscreen')) document.documentElement.requestFullscreen?.().catch(() => {});
+    else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  } else if (key === 'showFps') {
+    ui.toggleDebug(!!settings.get('showFps'));
+  }
+  // gamma + sens + invertY are read live in the render loop / look()
+}
+
+// ---------- saving ----------
+
+function hostSave(force) {
+  if (net?.mode !== 'host' || !world || !sky || !player) return;
+  saveWorld(net.code, {
+    seed: world.seed,
+    mode: world.gamemode,
+    editsStr: world.serializeEdits(),
+    time: sky.getTime(),
+    pos: [player.pos.x, player.pos.y, player.pos.z],
+    yaw: player.yaw,
+    containers: world.serializeContainers(),
+    inv: inventory.serialize(),
+    stats: { hp: stats.hp, hunger: stats.hunger, air: stats.air },
+  });
+}
+
 // ---------- main loop ----------
 
 let lastT = performance.now();
+startPanoramaSoon();
 
 function animate() {
   requestAnimationFrame(animate);
@@ -444,68 +1026,197 @@ function animate() {
     fpsTime = now;
   }
 
+  if (state === 'menu' && panCm) {
+    // title panorama: slow orbit over the generated world
+    scene.background = scene.background ?? new THREE.Color('#78b5e8');
+    panT += dt;
+    const c = panCm._panCenter ?? [0, 0];
+    const cx = c[0], cz = c[1];
+    const h = panWorld.worldgen.heightAt(Math.floor(cx), Math.floor(cz));
+    const a = panT * 0.06;
+    camera.position.set(cx + Math.sin(a) * 34, h + 16, cz + Math.cos(a) * 34);
+    camera.lookAt(cx, h + 2, cz);
+    panCm.update(cx, cz, 5);
+    renderer.render(scene, camera);
+    return;
+  }
+
   if (state === 'playing' && player) {
     const locked = document.pointerLockElement === canvas;
-    const activeKeys = locked ? keys : new Set();
+    const screenOpen = ui.isScreenOpen();
+    const active = locked && !screenOpen && !stats.dead;
 
-    // fixed-step physics (avoids tunneling on lag spikes)
+    // map keys -> actions
+    actions.clear();
+    if (active) {
+      for (const code of keys) {
+        const a = settings.actionFor(code);
+        if (a) actions.add(a);
+      }
+    }
+
+    attackCd = Math.max(0, attackCd - dt);
+    placeCd = Math.max(0, placeCd - dt);
+
+    // physics
     let step = dt;
     while (step > 0) {
       const h = Math.min(step, 1 / 60);
-      player.update(h, activeKeys);
+      player.update(h, active ? actions : new Set());
       step -= h;
     }
 
-    // splash on entering water
-    if (player.inWater && !wasInWater && Math.hypot(player.vel.x, player.vel.y, player.vel.z) > 3) sfx.splash();
-    wasInWater = player.inWater;
+    stats.update(dt, player, actions.size > 0);
 
-    // footsteps
+    // splash + steps
     if (player.stepAccum > 2.1) {
       player.stepAccum = 0;
       const under = world.getBlock(player.pos.x, player.pos.y - 0.3, player.pos.z);
       if (under !== B.AIR) sfx.step(BLOCKS[under]?.sound ?? 'stone');
     }
 
-    // held mouse button repeats break/place
-    if (holdBtn !== null && locked && now >= nextActionAt) {
-      doAction(holdBtn);
-      nextActionAt = now + 220;
-    }
-
     player.applyToCamera(camera);
 
-    // chunk streaming
-    cm.update(player.pos.x, player.pos.z, 6);
-
-    // sky & lighting
-    sky.update(dt, camera.position);
-    cm.setBrightness(sky.brightness);
-    avatars.setBrightness(sky.brightness);
-    avatars.setCameraPos(camera.position);
-    avatars.update(dt);
-
-    // underwater fog override
-    if (player.headInWater) {
-      scene.fog.color.set(0x1d4291);
-      scene.fog.near = 1;
-      scene.fog.far = 22;
-      scene.background.set(0x1d4291);
-    }
-
-    // block highlight
+    // targeting + mining
     const hit = player.raycast();
-    if (hit.hit) {
+    if (hit.hit && active) {
       highlight.visible = true;
       highlight.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
     } else {
       highlight.visible = false;
     }
 
+    let crackStage = -1;
+    if (holdBtn === 0 && active && hit.hit && myGamemode === 'survival') {
+      const res = player.tickMining(dt, hit, inventory.held(), false);
+      crackStage = res.stage;
+      if (res.completed) {
+        doBreak(hit);
+        player.mining = null;
+        crackStage = -1;
+        nextActionAt = now + 270;
+      } else if (crackStage >= 0) {
+        hitSoundT -= dt;
+        if (hitSoundT <= 0) {
+          hitSoundT = 0.25;
+          sfx.hit(BLOCKS[hit.id]?.sound ?? 'stone');
+        }
+      }
+    } else {
+      player.mining = null;
+    }
+    crackMesh.visible = crackStage >= 0;
+    if (crackStage >= 0) {
+      crackMesh.material.map = crackTextures[crackStage];
+      crackMesh.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
+    }
+
+    // held right button repeats place/use (creative break repeats too)
+    if (holdBtn !== null && active && now >= nextActionAt) {
+      if (holdBtn === 2 || myGamemode === 'creative') {
+        doAction(holdBtn);
+        nextActionAt = now + 220;
+      }
+    }
+    // world streaming + sky
+    cm.update(player.pos.x, player.pos.z, 6);
+    sky.update(dt, camera.position, player.headInWater);
+    const gamma = settings.get('gamma');
+    cm.setDaylight(sky.dayFactor, gamma, { color: scene.fog.color, near: scene.fog.near, far: scene.fog.far });
+    avatars.setBrightness(0.25 + 0.75 * sky.dayFactor);
+    mobs.setBrightness(0.25 + 0.75 * sky.dayFactor);
+    drops.group.visible = true;
+    avatars.setCameraPos(camera.position);
+    avatars.update(dt);
+
+    // mobs (host sims; clients animate)
+    const hostilesGroan = myGamemode !== 'creative' && !stats.dead;
+    if (net?.mode === 'host') {
+      const players = [];
+      players.push({ id: 0, pos: player.pos, gm: myGamemode, hp: stats.hp });
+      for (const [id, p] of net.players) {
+        if (id !== 0 && p.pos) players.push({ id, pos: new THREE.Vector3(p.pos.x, p.pos.y, p.pos.z), gm: p.pos.gm ?? world.gamemode, hp: p.pos.hp ?? 20 });
+      }
+      mobs.update(dt, players, sky.dayFactor);
+    } else {
+      mobs.update(dt, [], sky.dayFactor);
+    }
+
+    // ambient gloomer groans near the player
+    if (hostilesGroan && Math.random() < dt * 0.15) {
+      for (const m of mobs.mobs.values()) {
+        if (m.type === 'gloomer' && m.pos.distanceTo(player.pos) < 12) { sfx.groan(); break; }
+      }
+    }
+
+    drops.update(dt);
+    drops.interpolate(dt);
+    hand.update(dt, Math.hypot(player.vel.x, player.vel.z), player.onGround);
+
+    // item pickup
+    if (!stats.dead) {
+      if (drops.isHost) {
+        const near = drops.collect(player.pos.clone().add(new THREE.Vector3(0, 0.8, 0)));
+        for (const g of near) {
+          const left = inventory.add(g.stack);
+          if (left === 0) {
+            drops.remove(g.id);
+            sfx.pop();
+            hud.updateHotbar(inventory, inventory.selected);
+            hand.setHeld(inventory.held());
+          } else {
+            g.stack.count = left;
+          }
+        }
+      } else {
+        for (const e of drops.map.values()) {
+          const last = pickupReqT.get(e.id) ?? 0;
+          if (now - last < 900) continue;
+          if (e.pos.distanceTo(player.pos) < 1.7) {
+            pickupReqT.set(e.id, now);
+            net.sendPickupReq(e.id);
+          }
+        }
+      }
+    }
+
+    // furnaces tick (host)
+    if (net?.mode === 'host') {
+      for (const [k, c] of world.containers) {
+        if (c.type === 'furnace') tickFurnace(c, dt, null);
+      }
+      if (ui.isScreenOpen() && ui.screenMode === 'furnace' && now - furnaceUiTick > 400) {
+        furnaceUiTick = now;
+        ui.renderScreen();
+      }
+
+      // periodic entity sync — only when changed, drops capped to bound payload
+      if (now - lastEntitySync > 300) {
+        lastEntitySync = now;
+        const ms = mobs.states();
+        const msStr = JSON.stringify(ms);
+        if (msStr !== lastMobSync) {
+          lastMobSync = msStr;
+          net.hostMobs(ms);
+        }
+        const allDrops = drops.states();
+        const ds = allDrops.length > 80 ? allDrops.slice(0, 80) : allDrops;
+        const dsStr = JSON.stringify(ds);
+        if (dsStr !== lastDropSync) {
+          lastDropSync = dsStr;
+          net.hostDrops(ds);
+        }
+      }
+    }
+
+    // HUD
+    hud.updateStats(stats, myGamemode);
+    hud.updateHotbar(inventory, inventory.selected);
+
     // network position sync @10Hz
     if (net && now - lastPosSend > 100) {
       lastPosSend = now;
-      net.sendPos(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, player.fly);
+      net.sendPos(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, player.fly, stats.hp, myGamemode);
     }
 
     // host: save every 5s, sync time every 30s
@@ -521,12 +1232,17 @@ function animate() {
 
     if (ui.debugVisible) {
       const cx = Math.floor(player.pos.x / CHUNK), cz = Math.floor(player.pos.z / CHUNK);
+      const biome = world.worldgen.biomeAt(Math.floor(player.pos.x), Math.floor(player.pos.z));
+      const BIOME_NAMES = ['Plains', 'Forest', 'Desert', 'Snowfield', 'Taiga', 'Savanna'];
+      const skyL = lighting.getSky(Math.floor(player.pos.x), Math.floor(player.pos.y + 1.6), Math.floor(player.pos.z));
+      const bl = lighting.getBlockLight(Math.floor(player.pos.x), Math.floor(player.pos.y + 1.6), Math.floor(player.pos.z));
       ui.setDebug([
-        `Voxelheim · ${fps} fps`,
+        `Terravale ${settings.get('showFps') || ui.debugVisible ? '· ' + fps + ' fps' : ''}`,
         `xyz ${player.pos.x.toFixed(1)} / ${player.pos.y.toFixed(1)} / ${player.pos.z.toFixed(1)}`,
-        `chunk ${cx},${cz} · pending ${cm.pending()}`,
-        `${player.fly ? 'flying' : player.inWater ? 'swimming' : player.onGround ? 'on ground' : 'airborne'} · seed ${world.seed}`,
-        `players ${net ? net.players.size : 1}`,
+        `chunk ${cx},${cz} · pending ${cm.pending()} · biome ${BIOME_NAMES[biome] ?? '?'}`,
+        `light sky ${skyL} block ${bl} · time ${(sky.getTime() * 24).toFixed(1)}h`,
+        `${player.fly ? 'flying' : player.inWater ? 'swimming' : player.onGround ? 'on ground' : 'airborne'} · ${myGamemode}`,
+        `mobs ${mobs.count()} · drops ${drops.map.size} · players ${net ? net.players.size : 1}`,
       ]);
     }
   }
