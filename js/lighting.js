@@ -1,25 +1,36 @@
-// Voxel lighting: per-chunk sky + block light arrays with BFS flood
-// propagation across chunk borders. Sky light columns pass straight down
-// through air; everything else spreads with distance falloff. Incremental
-// relight on edits uses the classic remove-then-repropagate algorithm.
+// Voxel lighting v3: per-chunk sky light (single channel) + COLORED block
+// light (three channels: warm torches, red lava, golden glowstone) with
+// BFS flood propagation across chunk borders. Incremental relight on edits
+// uses the classic remove-then-repropagate algorithm per channel.
 
 import { CHUNK, HEIGHT } from './worldgen.js';
-import { B, isOpaque, lightOf } from './blocks.js';
+import { B, isOpaque, BLOCKS } from './blocks.js';
 
 const ATT_WATER = 2;   // extra falloff through water/lava
 const DIRECT_SKY = 15;
 
 function attenuation(id) {
   if (id === B.AIR) return 0;
+  // leaves diffuse light (attenuate by 1) instead of blocking it — else
+  // canopies render pitch black underneath
+  if (id >= B.OAK_LEAVES && id <= B.SPRUCE_LEAVES) return 1;
   if (isOpaque(id)) return 99;       // blocks light entirely
   if (id === B.WATER || id === B.LAVA) return 1 + ATT_WATER;
   return 1;                          // plants, glass, torches
 }
 
+// emission color of a block, scaled 0..15 per channel
+function emitterRGB(id) {
+  const bl = BLOCKS[id];
+  if (!bl || !bl.light) return null;
+  const c = bl.lightColor ?? [1, 1, 1];
+  return [bl.light * c[0], bl.light * c[1], bl.light * c[2]];
+}
+
 export class Lighting {
   constructor(world) {
     this.world = world;
-    this.maps = new Map(); // chunk key -> { sky, block }
+    this.maps = new Map(); // chunk key -> { sky, br, bg, bb }
     world.onBlockChanged = (x, y, z, newId, oldId) => this.onBlockChanged(x, y, z, newId, oldId);
   }
 
@@ -29,7 +40,12 @@ export class Lighting {
     const k = this.key(cx, cz);
     let m = this.maps.get(k);
     if (!m) {
-      m = { sky: new Uint8Array(CHUNK * CHUNK * HEIGHT), block: new Uint8Array(CHUNK * CHUNK * HEIGHT) };
+      m = {
+        sky: new Uint8Array(CHUNK * CHUNK * HEIGHT),
+        br: new Uint8Array(CHUNK * CHUNK * HEIGHT),
+        bg: new Uint8Array(CHUNK * CHUNK * HEIGHT),
+        bb: new Uint8Array(CHUNK * CHUNK * HEIGHT),
+      };
       this.maps.set(k, m);
     }
     return m;
@@ -53,11 +69,25 @@ export class Lighting {
     return m.sky[this.#local(x, y, z, x >> 4, z >> 4)];
   }
 
+  // block light as normalized RGB triple
+  getBlockRGB(x, y, z, out) {
+    if (y < 0 || y >= HEIGHT) return (out[0] = out[1] = out[2] = 0);
+    const m = this.maps.get(this.key(x >> 4, z >> 4));
+    if (!m) return (out[0] = out[1] = out[2] = 0);
+    const i = this.#local(x, y, z, x >> 4, z >> 4);
+    out[0] = m.br[i] / 15;
+    out[1] = m.bg[i] / 15;
+    out[2] = m.bb[i] / 15;
+    return out;
+  }
+
+  // max channel, for spawn checks
   getBlockLight(x, y, z) {
     if (y < 0 || y >= HEIGHT) return 0;
     const m = this.maps.get(this.key(x >> 4, z >> 4));
     if (!m) return 0;
-    return m.block[this.#local(x, y, z, x >> 4, z >> 4)];
+    const i = this.#local(x, y, z, x >> 4, z >> 4);
+    return Math.max(m.br[i], m.bg[i], m.bb[i]);
   }
 
   #setSky(x, y, z, v) {
@@ -65,9 +95,11 @@ export class Lighting {
     if (m) m.sky[this.#local(x, y, z, x >> 4, z >> 4)] = v;
   }
 
-  #setBlockLight(x, y, z, v) {
+  #setBlockRGB(x, y, z, r, g, b) {
     const m = this.maps.get(this.key(x >> 4, z >> 4));
-    if (m) m.block[this.#local(x, y, z, x >> 4, z >> 4)] = v;
+    if (!m) return;
+    const i = this.#local(x, y, z, x >> 4, z >> 4);
+    m.br[i] = r; m.bg[i] = g; m.bb[i] = b;
   }
 
   // drop light arrays for unloaded chunks (regenerated on demand)
@@ -82,8 +114,8 @@ export class Lighting {
     const data = world.ensureChunk(cx, cz).data;
     const x0 = cx * CHUNK, z0 = cz * CHUNK;
 
-    const addQ = [];   // spread queue: [x,y,z]
-    const addQL = [];  // block light queue
+    const addQ = [];    // sky spread queue: [x,y,z]
+    const addQL = [];   // block light queue: [x,y,z]
 
     // 1) sky columns + emitters
     for (let lz = 0; lz < CHUNK; lz++) {
@@ -92,16 +124,21 @@ export class Lighting {
         for (let y = HEIGHT - 1; y >= 0; y--) {
           const id = data[(y * CHUNK + lz) * CHUNK + lx];
           if (level > 0) {
-            const att = id === B.AIR ? 0 : (id === B.WATER || id === B.LAVA ? 3 : (isOpaque(id) ? 99 : 1));
+            let att;
+            if (id === B.AIR) att = 0;
+            else if (id >= B.OAK_LEAVES && id <= B.SPRUCE_LEAVES) att = 1;
+            else if (id === B.WATER || id === B.LAVA) att = 3;
+            else if (isOpaque(id)) att = 99;
+            else att = 1;
             level = att >= 99 ? 0 : Math.max(0, level - att);
             this.#setSky(x0 + lx, y, z0 + lz, level);
             if (level > 1) addQ.push(x0 + lx, y, z0 + lz);
           } else {
             this.#setSky(x0 + lx, y, z0 + lz, 0);
           }
-          const emit = lightOf(id);
-          if (emit > 0) {
-            this.#setBlockLight(x0 + lx, y, z0 + lz, emit);
+          const emit = emitterRGB(id);
+          if (emit) {
+            this.#setBlockRGB(x0 + lx, y, z0 + lz, emit[0], emit[1], emit[2]);
             addQL.push(x0 + lx, y, z0 + lz);
           }
         }
@@ -121,21 +158,19 @@ export class Lighting {
       }
     }
 
-    this.#spread(addQ, true);
-    this.#spread(addQL, false);
+    this.#spreadSky(addQ);
+    this.#spreadBlock(addQL);
   }
 
-  #spread(queue, sky) {
-    const get = sky ? this.getSky.bind(this) : this.getBlockLight.bind(this);
-    const set = sky ? this.#setSky.bind(this) : this.#setBlockLight.bind(this);
+  #spreadSky(queue) {
     const world = this.world;
     let head = 0;
     while (head < queue.length) {
       const x = queue[head++], y = queue[head++], z = queue[head++];
-      const level = get(x, y, z);
+      const level = this.getSky(x, y, z);
       if (level <= 1) continue;
-      for (const [dx, dy, dz] of NEIGHBORS) {
-        const nx = x + dx, ny = y + dy, nz = z + dz;
+      for (let f = 0; f < 6; f++) {
+        const nx = x + NX[f], ny = y + NY[f], nz = z + NZ[f];
         if (ny < 0 || ny >= HEIGHT) continue;
         const cx = nx >> 4, cz = nz >> 4;
         if (!this.maps.has(this.key(cx, cz))) continue; // not loaded
@@ -143,12 +178,44 @@ export class Lighting {
         const att = attenuation(nid);
         if (att >= 99) continue;
         const nl = level - att;
-        if (nl > get(nx, ny, nz)) {
-          set(nx, ny, nz, nl);
+        if (nl > this.getSky(nx, ny, nz)) {
+          this.#setSky(nx, ny, nz, nl);
           if (nl > 1) queue.push(nx, ny, nz);
         }
       }
-      if (queue.length > 200000) queue.splice(0, head), head = 0; // bound memory
+      if (queue.length > 200000) { queue.splice(0, head); head = 0; }
+    }
+  }
+
+  // block light spreads per channel; a cell's channels advance independently
+  #spreadBlock(queue) {
+    const world = this.world;
+    let head = 0;
+    while (head < queue.length) {
+      const x = queue[head++], y = queue[head++], z = queue[head++];
+      const m = this.maps.get(this.key(x >> 4, z >> 4));
+      if (!m) continue;
+      const i = this.#local(x, y, z, x >> 4, z >> 4);
+      const cr = m.br[i], cg = m.bg[i], cb = m.bb[i];
+      if (Math.max(cr, cg, cb) <= 1) continue;
+      for (let f = 0; f < 6; f++) {
+        const nx = x + NX[f], ny = y + NY[f], nz = z + NZ[f];
+        if (ny < 0 || ny >= HEIGHT) continue;
+        const cx = nx >> 4, cz = nz >> 4;
+        if (!this.maps.has(this.key(cx, cz))) continue;
+        const nid = world.getBlock(nx, ny, nz);
+        const att = attenuation(nid);
+        if (att >= 99) continue;
+        const nm = this.maps.get(this.key(cx, cz));
+        const ni = this.#local(nx, ny, nz, cx, cz);
+        const dr = Math.max(0, cr - att), dg = Math.max(0, cg - att), db = Math.max(0, cb - att);
+        let pushed = false;
+        if (dr > nm.br[ni]) { nm.br[ni] = dr; pushed = true; }
+        if (dg > nm.bg[ni]) { nm.bg[ni] = dg; pushed = true; }
+        if (db > nm.bb[ni]) { nm.bb[ni] = db; pushed = true; }
+        if (pushed && Math.max(dr, dg, db) > 1) queue.push(nx, ny, nz);
+      }
+      if (queue.length > 240000) { queue.splice(0, head); head = 0; }
     }
   }
 
@@ -164,30 +231,26 @@ export class Lighting {
     // recompute the whole sky column (cheap: 128 cells)
     this.#recomputeSkyColumn(x, z, mark);
 
-    // block light: handle emitters and occluders
-    const oldEmit = lightOf(oldId ?? 0);
-    const newEmit = lightOf(newId);
-    if (oldEmit > 0 || (isOpaque(oldId ?? 0) && this.getBlockLight(x, y, z) > 0)) {
-      this.#removeLight(x, y, z, false, mark);
+    // block light: remove old contribution, then add the new one
+    if (this.getBlockLight(x, y, z) > 0) {
+      this.#removeBlockLight(x, y, z, mark);
     }
-    if (newEmit > 0) {
-      this.#setBlockLight(x, y, z, newEmit);
-      this.#spread([x, y, z], false);
+    const emit = emitterRGB(newId);
+    if (emit) {
+      this.#setBlockRGB(x, y, z, emit[0], emit[1], emit[2]);
+      this.#spreadBlock([x, y, z]);
       mark(x, y, z);
     }
-    if (!isOpaque(newId) && newEmit === 0) {
-      // opened up (or transparent): let neighbors' light flow in
+    if (!isOpaque(newId)) {
+      // opened up: let neighbors' light flow in
       const q = [];
-      for (const [dx, dy, dz] of NEIGHBORS) {
-        const nx = x + dx, ny = y + dy, nz = z + dz;
-        q.push(nx, ny, nz);
-      }
-      this.#spread(q, false);
-      this.#spread(q, true);
+      for (let f = 0; f < 6; f++) q.push(x + NX[f], y + NY[f], z + NZ[f]);
+      this.#spreadBlock(q);
+      this.#spreadSky(q);
       mark(x, y, z);
     }
     if (isOpaque(newId)) {
-      this.#removeLight(x, y, z, false, mark);
+      this.#removeBlockLight(x, y, z, mark);
       mark(x, y, z);
     }
 
@@ -199,7 +262,12 @@ export class Lighting {
     const q = [];
     for (let y = HEIGHT - 1; y >= 0; y--) {
       const id = this.world.getBlock(x, y, z);
-      const att = id === B.AIR ? 0 : (id === B.WATER || id === B.LAVA ? 3 : (isOpaque(id) ? 99 : 1));
+      let att;
+      if (id === B.AIR) att = 0;
+      else if (id >= B.OAK_LEAVES && id <= B.SPRUCE_LEAVES) att = 1;
+      else if (id === B.WATER || id === B.LAVA) att = 3;
+      else if (isOpaque(id)) att = 99;
+      else att = 1;
       level = att >= 99 ? 0 : Math.max(0, level - att);
       this.#setSky(x, y, z, level);
       if (level > 1) q.push(x, y, z);
@@ -212,32 +280,30 @@ export class Lighting {
         q.push(nx, y, nz);
       }
     }
-    this.#spread(q, true);
+    this.#spreadSky(q);
     mark(x, z);
   }
 
-  // standard two-phase removal: darken everything fed by this cell, then
-  // re-propagate from the surviving perimeter
-  #removeLight(x, y, z, sky, mark) {
-    const get = sky ? this.getSky.bind(this) : this.getBlockLight.bind(this);
-    const set = sky ? this.#setSky.bind(this) : this.#setBlockLight.bind(this);
-    const startLevel = get(x, y, z);
-    if (startLevel === 0) return;
-    set(x, y, z, 0);
+  // two-phase removal for all three channels at once: darken everything fed
+  // by this cell, then re-propagate from the surviving perimeter
+  #removeBlockLight(x, y, z, mark) {
+    const start = this.getBlockLight(x, y, z);
+    if (start === 0) return;
+    this.#setBlockRGB(x, y, z, 0, 0, 0);
 
-    const darkQ = [[x, y, z, startLevel]];
+    const darkQ = [[x, y, z, start]];
     const relightQ = [];
     let head = 0;
     while (head < darkQ.length) {
       const [qx, qy, qz, ql] = darkQ[head++];
-      for (const [dx, dy, dz] of NEIGHBORS) {
-        const nx = qx + dx, ny = qy + dy, nz = qz + dz;
+      for (let f = 0; f < 6; f++) {
+        const nx = qx + NX[f], ny = qy + NY[f], nz = qz + NZ[f];
         if (ny < 0 || ny >= HEIGHT) continue;
         if (!this.maps.has(this.key(nx >> 4, nz >> 4))) continue;
-        const nl = get(nx, ny, nz);
+        const nl = this.getBlockLight(nx, ny, nz);
         if (nl === 0) continue;
         if (nl < ql) {
-          set(nx, ny, nz, 0);
+          this.#setBlockRGB(nx, ny, nz, 0, 0, 0);
           darkQ.push([nx, ny, nz, nl]);
           mark(nx, ny, nz);
         } else {
@@ -245,13 +311,11 @@ export class Lighting {
         }
       }
     }
-    this.#spread(relightQ, sky);
+    this.#spreadBlock(relightQ);
     mark(x, y, z);
   }
 }
 
-const NEIGHBORS = [
-  [1, 0, 0], [-1, 0, 0],
-  [0, 1, 0], [0, -1, 0],
-  [0, 0, 1], [0, 0, -1],
-];
+const NX = [1, -1, 0, 0, 0, 0];
+const NY = [0, 0, 1, -1, 0, 0];
+const NZ = [0, 0, 0, 0, 1, -1];

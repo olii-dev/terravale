@@ -180,4 +180,69 @@ export class Sfx {
   levelTool() {
     this.tone(880, 'sine', 0.1, 0.3);
   }
+
+  // --- weather loops (started/stopped, not one-shots) ---
+
+  startRain() {
+    if (!this.ensure() || this._rainNode) return;
+    const t = this.ctx.currentTime;
+    const len = this.ctx.sampleRate * 2;
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const ch = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+      const white = Math.random() * 2 - 1;
+      last = last * 0.86 + white * 0.14; // reddened noise = rain patter
+      ch[i] = last * 3.2;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 1400;
+    filt.Q.value = 0.4;
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0;
+    gain.gain.linearRampToValueAtTime(0.55, t + 2.5);
+    src.connect(filt).connect(gain).connect(this.master);
+    src.start();
+    this._rainNode = { src, gain };
+  }
+
+  stopRain() {
+    if (!this._rainNode || !this.ctx) return;
+    const { src, gain } = this._rainNode;
+    const t = this.ctx.currentTime;
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setValueAtTime(gain.gain.value, t);
+    gain.gain.linearRampToValueAtTime(0, t + 1.5);
+    setTimeout(() => { try { src.stop(); } catch { /* stopped */ } }, 1700);
+    this._rainNode = null;
+  }
+
+  thunder() {
+    if (!this.ensure() || this.muted) return;
+    const t = this.ctx.currentTime;
+    const len = this.ctx.sampleRate * 1.8;
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const ch = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+      const decay = Math.pow(1 - i / len, 2.2);
+      const white = Math.random() * 2 - 1;
+      last = last * 0.94 + white * 0.06;
+      ch[i] = (last * 8 + white * 0.25) * decay;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.setValueAtTime(400, t);
+    filt.frequency.exponentialRampToValueAtTime(60, t + 1.6);
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.7;
+    src.connect(filt).connect(gain).connect(this.master);
+    src.start(t, 0, 1.8);
+  }
 }

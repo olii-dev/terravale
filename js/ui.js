@@ -247,6 +247,9 @@ export class UI {
       [s, v] = slider('gamma', 0, 1, 0.05, (x) => Math.round(x * 100) + '%');
       row('Brightness', s, v);
       toggle('clouds', 'Clouds');
+      toggle('fancy', 'Fancy graphics (sway + water)');
+      toggle('particles', 'Particles');
+      toggle('vignette', 'Vignette');
       toggle('showFps', 'Show FPS');
       const fs = document.createElement('button');
       fs.className = 'mcbtn';
@@ -287,6 +290,7 @@ export class UI {
     } else if (tab === 'gameplay') {
       toggle('autoJump', 'Auto-jump');
       toggle('hints', 'Show hints');
+      toggle('weather', 'Weather (rain & snow)');
       const reset = document.createElement('button');
       reset.className = 'mcbtn danger';
       reset.textContent = 'Reset all settings';

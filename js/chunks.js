@@ -11,7 +11,9 @@ import { buildAtlas } from './textures.js';
 
 export const TERRAIN_UNIFORMS = {
   uDay: { value: 1.0 },
+  uDayColor: { value: new THREE.Color(1, 1, 1) },
   uGamma: { value: 0.3 },
+  uTime: { value: 0.0 },
   uFogColor: { value: new THREE.Color(0x78b5e8) },
   uFogNear: { value: 40 },
   uFogFar: { value: 200 },
@@ -19,19 +21,33 @@ export const TERRAIN_UNIFORMS = {
 
 const TERRAIN_VERT = `
   attribute float skylight;
-  attribute float blocklight;
+  attribute vec3 blocklight;
   attribute vec3 color;
+  uniform float uTime;
+  uniform float uSwayAmp;
+  uniform float uWaterAmp;
   varying vec2 vUv;
   varying vec3 vColor;
   varying float vSkyL;
-  varying float vBlockL;
+  varying vec3 vBlockL;
   varying float vFogDepth;
   void main() {
     vUv = uv;
     vColor = color;
     vSkyL = skylight;
     vBlockL = blocklight;
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vec3 transformed = position;
+    #ifdef SWAY
+      // foliage sway: tile-v (0 bottom, 1 top) weights the offset
+      float swayW = fract(uv.y * 8.0);
+      float ph = position.x * 0.6 + position.z * 0.45;
+      transformed.x += sin(uTime * 1.9 + ph) * 0.05 * swayW * uSwayAmp;
+      transformed.z += cos(uTime * 1.4 + ph * 1.3) * 0.04 * swayW * uSwayAmp;
+    #endif
+    #ifdef WATER
+      transformed.y += sin(uTime * 1.7 + position.x * 0.7 + position.z * 0.8) * 0.055 * uWaterAmp - 0.025 * uWaterAmp;
+    #endif
+    vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
     vFogDepth = -mvPosition.z;
     gl_Position = projectionMatrix * mvPosition;
   }
@@ -40,28 +56,41 @@ const TERRAIN_VERT = `
 const TERRAIN_FRAG = `
   uniform sampler2D map;
   uniform float uDay;
+  uniform vec3 uDayColor;
   uniform float uGamma;
+  uniform float uTime;
   uniform float uOpacity;
+  uniform float uWaterAmp;
   uniform vec3 uFogColor;
   uniform float uFogNear;
   uniform float uFogFar;
   varying vec2 vUv;
   varying vec3 vColor;
   varying float vSkyL;
-  varying float vBlockL;
+  varying vec3 vBlockL;
   varying float vFogDepth;
   void main() {
-    vec4 texel = texture2D(map, vUv) * vec4(vColor, 1.0);
+    vec2 texUv = vUv;
+    #ifdef WATER
+      texUv += vec2(sin(uTime * 0.6), cos(uTime * 0.45)) * 0.0015 * uWaterAmp;
+    #endif
+    vec4 texel = texture2D(map, texUv) * vec4(vColor, 1.0);
     #ifdef CUTOUT
       if (texel.a < 0.5) discard;
     #endif
-    float lightLevel = max(vBlockL, vSkyL * uDay);
-    lightLevel = clamp(mix(lightLevel, 1.0, uGamma * (1.0 - lightLevel)), 0.04, 1.0);
-    texel.rgb *= lightLevel;
+    // colored light: warm torches / red lava / golden glowstone vs the
+    // (tinted) sky — per channel max, gently desaturated
+    vec3 light = max(vBlockL, vSkyL * uDayColor);
+    float maxL = max(light.r, max(light.g, light.b));
+    light = mix(light, vec3(maxL), 0.35);
+    light = clamp(mix(light, vec3(1.0), uGamma * (1.0 - maxL)), 0.04, 1.0);
+    texel.rgb *= light;
     texel.a *= uOpacity;
     float fogF = smoothstep(uFogNear, uFogFar, vFogDepth);
     texel.rgb = mix(texel.rgb, uFogColor, fogF);
     gl_FragColor = texel;
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
   }
 `;
 
@@ -71,13 +100,15 @@ function makeTerrainMaterial(opts = {}) {
       ...TERRAIN_UNIFORMS,
       map: { value: null },
       uOpacity: { value: opts.opacity ?? 1.0 },
+      uSwayAmp: { value: opts.swayAmp ?? 0 },
+      uWaterAmp: { value: opts.waterAmp ?? 0 },
     },
     vertexShader: TERRAIN_VERT,
     fragmentShader: TERRAIN_FRAG,
     transparent: opts.transparent ?? false,
     depthWrite: opts.depthWrite ?? true,
     side: opts.side ?? THREE.FrontSide,
-    defines: opts.cutout ? { CUTOUT: '' } : {},
+    defines: opts.defines ?? {},
   });
   return m;
 }
@@ -85,7 +116,9 @@ function makeTerrainMaterial(opts = {}) {
 // keep every material's uniform objects shared so global updates reach all
 function wireUniforms(mat) {
   mat.uniforms.uDay = TERRAIN_UNIFORMS.uDay;
+  mat.uniforms.uDayColor = TERRAIN_UNIFORMS.uDayColor;
   mat.uniforms.uGamma = TERRAIN_UNIFORMS.uGamma;
+  mat.uniforms.uTime = TERRAIN_UNIFORMS.uTime;
   mat.uniforms.uFogColor = TERRAIN_UNIFORMS.uFogColor;
   mat.uniforms.uFogNear = TERRAIN_UNIFORMS.uFogNear;
   mat.uniforms.uFogFar = TERRAIN_UNIFORMS.uFogFar;
@@ -113,9 +146,18 @@ export class ChunkManager {
     };
     this.materials = {
       opaque: mk({}),
-      cutout: mk({ cutout: true, side: THREE.DoubleSide }),
-      water: mk({ transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0.8 }),
+      cutout: mk({ defines: { CUTOUT: '', SWAY: '' }, side: THREE.DoubleSide, swayAmp: 1 }),
+      water: mk({ transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0.8, defines: { WATER: '' }, waterAmp: 1 }),
     };
+  }
+
+  // live fancy-graphics toggle (sway + water animation amplitude)
+  setFancy(on) {
+    for (const key of ['cutout', 'water']) {
+      const m = this.materials[key];
+      m.uniforms.uSwayAmp.value = on ? 1 : 0;
+      m.uniforms.uWaterAmp.value = on ? 1 : 0;
+    }
   }
 
   setRadius(r) { this.radius = r; }
@@ -221,6 +263,22 @@ export class ChunkManager {
   setDaylight(day, gamma, fog = null) {
     TERRAIN_UNIFORMS.uDay.value = day;
     TERRAIN_UNIFORMS.uGamma.value = gamma;
+    // sky-light tint: moonlit blue at night, warm amber at dawn/dusk, white at noon
+    const c = TERRAIN_UNIFORMS.uDayColor.value;
+    if (day < 0.25) {
+      c.setRGB(0.3, 0.36, 0.55);
+    } else if (day < 0.65) {
+      // warm band between night and full day
+      const t = (day - 0.25) / 0.4;
+      const warm = Math.sin(t * Math.PI); // peaks mid-transition
+      c.setRGB(
+        0.3 + (1.0 - 0.3) * t + 0.35 * warm * (1 - t),
+        0.36 + (1.0 - 0.36) * t + 0.1 * warm * (1 - t),
+        0.55 + (1.0 - 0.55) * t
+      );
+    } else {
+      c.setRGB(1, 1, 1);
+    }
     if (fog) {
       TERRAIN_UNIFORMS.uFogColor.value.copy(fog.color);
       TERRAIN_UNIFORMS.uFogNear.value = fog.near;

@@ -39,9 +39,25 @@ export class HandView {
       this.mesh.rotation.y = -0.4;
       this.mesh.rotation.z = 0.35;
     } else {
-      // bare hand: simple skin-toned box
-      const mat = new THREE.MeshBasicMaterial({ color: 0xf0c8a0 });
-      this.mesh = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.34, 0.14), mat);
+      // bare arm: skin with sleeve shading via a tiny procedural texture
+      const c = document.createElement('canvas');
+      c.width = c.height = 16;
+      const tctx = c.getContext('2d');
+      tctx.fillStyle = '#f0c8a0';
+      tctx.fillRect(0, 0, 16, 16);
+      tctx.fillStyle = '#e0b288';
+      for (let i = 0; i < 30; i++) tctx.fillRect(Math.floor(Math.random() * 16), Math.floor(Math.random() * 16), 1, 1);
+      tctx.fillStyle = '#4a7a8c';
+      tctx.fillRect(0, 0, 16, 5); // sleeve
+      tctx.fillStyle = '#3d6776';
+      tctx.fillRect(0, 4, 16, 1);
+      const tex = new THREE.CanvasTexture(c);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      this.mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.34, 0.14),
+        new THREE.MeshBasicMaterial({ map: tex })
+      );
       this.mesh.rotation.set(0.5, 0, -0.2);
     }
     this.group.add(this.mesh);

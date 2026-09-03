@@ -30,7 +30,7 @@ function pushQuad(bucket, verts, uvs, colors, skys, blocks, flip) {
     bucket.uv.push(uvs[i][0], uvs[i][1]);
     bucket.color.push(colors[i], colors[i], colors[i]);
     bucket.sky.push(skys[i]);
-    bucket.block.push(blocks[i]);
+    bucket.block.push(blocks[i * 3], blocks[i * 3 + 1], blocks[i * 3 + 2]);
   }
   if (flip) bucket.index.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
   else bucket.index.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -44,7 +44,7 @@ function bucketToGeometry(bucket) {
   g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(bucket.uv), 2));
   g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(bucket.color), 3));
   g.setAttribute('skylight', new THREE.BufferAttribute(new Float32Array(bucket.sky), 1));
-  g.setAttribute('blocklight', new THREE.BufferAttribute(new Float32Array(bucket.block), 1));
+  g.setAttribute('blocklight', new THREE.BufferAttribute(new Float32Array(bucket.block), 3));
   g.setIndex(bucket.index);
   g.computeBoundingSphere();
   return g;
@@ -69,7 +69,11 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
   };
 
   const skyAt = (x, y, z) => lighting ? lighting.getSky(x0 + x, y, z0 + z) : 15;
-  const blockAtL = (x, y, z) => lighting ? lighting.getBlockLight(x0 + x, y, z0 + z) : 0;
+  const blkScratch = [0, 0, 0];
+  const blockAtL = (x, y, z, out) => {
+    if (!lighting) return (out[0] = out[1] = out[2] = 0);
+    return lighting.getBlockRGB(x0 + x, y, z0 + z, out);
+  };
 
   for (let y = 0; y < maxY; y++) {
     for (let z = 0; z < CHUNK; z++) {
@@ -79,7 +83,7 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
         const bl = BLOCKS[id];
 
         if (bl.cross) {
-          pushCross(cutout, x, y, z, bl.faceTiles[0], x0, z0, skyAt(x, y, z) / 15, blockAtL(x, y, z) / 15);
+          pushCross(cutout, x, y, z, bl.faceTiles[0], x0, z0, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch));
           continue;
         }
 
@@ -107,7 +111,7 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
           const verts = [];
           const colors = [];
           const skys = [];
-          const blocksL = [];
+          const blocksL = [];  // 3 floats per vertex (r,g,b)
           const aos = [];
           for (let i = 0; i < 4; i++) {
             const v = face.v[i];
@@ -120,15 +124,15 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
               aos.push(sample.ao);
               colors.push(face.shade * AO_LUT[sample.ao]);
               skys.push(sample.sky);
-              blocksL.push(sample.block);
+              blocksL.push(sample.block[0], sample.block[1], sample.block[2]);
             } else {
               aos.push(3);
               colors.push(face.shade);
               // flat light for water/glass/cutout
               const s = skyAt(nx, ny, nz) / 15;
-              const b = blockAtL(nx, ny, nz) / 15;
+              const b = blockAtL(nx, ny, nz, blkScratch);
               skys.push(s);
-              blocksL.push(b);
+              blocksL.push(b[0], b[1], b[2]);
             }
           }
           const flip = aos[0] + aos[2] < aos[1] + aos[3];
@@ -169,15 +173,19 @@ function faceLightAO(get, skyAt, blockAtL, face, v, x, y, z) {
   const ao = (o1 && o2) ? 0 : 3 - (o1 + o2 + oc);
 
   // light: average the non-opaque samples among base + 3 neighbors
-  let skySum = skyAt(px, py, pz), blockSum = blockAtL(px, py, pz), n = 1;
-  if (!o1) { skySum += skyAt(s1x, s1y, s1z); blockSum += blockAtL(s1x, s1y, s1z); n++; }
-  if (!o2) { skySum += skyAt(s2x, s2y, s2z); blockSum += blockAtL(s2x, s2y, s2z); n++; }
-  if (!oc && !(o1 && o2)) { skySum += skyAt(cxx, cyy, czz); blockSum += blockAtL(cxx, cyy, czz); n++; }
+  const blk = [0, 0, 0];
+  let skySum = skyAt(px, py, pz);
+  blockAtL(px, py, pz, blk);
+  let br = blk[0], bg = blk[1], bb = blk[2], n = 1;
+  if (!o1) { skySum += skyAt(s1x, s1y, s1z); blockAtL(s1x, s1y, s1z, blk); br += blk[0]; bg += blk[1]; bb += blk[2]; n++; }
+  if (!o2) { skySum += skyAt(s2x, s2y, s2z); blockAtL(s2x, s2y, s2z, blk); br += blk[0]; bg += blk[1]; bb += blk[2]; n++; }
+  if (!oc && !(o1 && o2)) { skySum += skyAt(cxx, cyy, czz); blockAtL(cxx, cyy, czz, blk); br += blk[0]; bg += blk[1]; bb += blk[2]; n++; }
 
-  return { ao, sky: skySum / n / 15, block: blockSum / n / 15 };
+  return { ao, sky: skySum / n / 15, block: [br / n, bg / n, bb / n] };
 }
 
 function pushCross(bucket, x, y, z, tile, x0, z0, sky, blockL) {
+  const bl = [blockL[0], blockL[1], blockL[2]];
   const rect = uvRect(tile);
   const off = ((x0 + x) * 31 + (z0 + z) * 17 + y * 7) % 7 / 7;
   const ox = (off - 0.5) * 0.3;
@@ -193,6 +201,6 @@ function pushCross(bucket, x, y, z, tile, x0, z0, sky, blockL) {
     const uvs = [
       [rect[0], rect[1]], [rect[2], rect[1]], [rect[2], rect[3]], [rect[0], rect[3]],
     ];
-    pushQuad(bucket, verts, uvs, [1, 1, 1, 1], [sky, sky, sky, sky], [blockL, blockL, blockL, blockL], false);
+    pushQuad(bucket, verts, uvs, [1, 1, 1, 1], [sky, sky, sky, sky], [bl[0], bl[1], bl[2], bl[0], bl[1], bl[2], bl[0], bl[1], bl[2], bl[0], bl[1], bl[2]], false);
   }
 }

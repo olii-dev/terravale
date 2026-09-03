@@ -9,7 +9,7 @@ import { resolveFaceTiles } from './blocks.js';
 import { World, HEIGHT } from './world.js';
 import { CHUNK } from './worldgen.js';
 import { Lighting } from './lighting.js';
-import { ChunkManager } from './chunks.js';
+import { ChunkManager, TERRAIN_UNIFORMS } from './chunks.js';
 import { Player } from './player.js';
 import { Sky } from './sky.js';
 import { Sfx } from './sounds.js';
@@ -29,6 +29,9 @@ import { runCommand, commandSuggestions } from './commands.js';
 import { canHarvest, isFood, isBlockItem, nameOf, ITEMS } from './items.js';
 import { tickFurnace } from './containers.js';
 import { itemIcon } from './sprites.js';
+import { Particles } from './particles.js';
+import { Weather } from './weather.js';
+import { tileColors } from './textures.js';
 
 // ---------- boot ----------
 
@@ -39,6 +42,9 @@ if ('ontouchstart' in window && !window.matchMedia('(pointer: fine)').matches) {
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.domElement.classList.add('game');
 document.body.prepend(renderer.domElement);
 
@@ -75,6 +81,7 @@ let state = 'menu'; // menu | connecting | playing
 let world = null, lighting = null, cm = null, player = null, sky = null;
 let avatars = null, mobs = null, drops = null, hand = null, net = null;
 let inventory = null, stats = null, ui = null, chat = null, hud = null;
+let particles = null, weather = null;
 let myName = 'Wanderer', myColor = '#7ddb5a', myGamemode = 'survival';
 let expectUnlock = false;
 let holdBtn = null, nextActionAt = 0, attackCd = 0, placeCd = 0, hitSoundT = 0;
@@ -82,7 +89,7 @@ let lastPosSend = 0, lastSaveAt = 0, lastTimeSync = 0, lastEntitySync = 0, lastM
 let lastCstate = 0, furnaceUiTick = 0;
 let frames = 0, fpsTime = 0, fps = 0;
 let pickupReqT = new Map();
-let deathDropped = false;
+let deathDropped = false, bobPhase = 0;
 const keys = new Set();
 const actions = new Set();
 
@@ -280,6 +287,11 @@ function setupGame() {
   };
   drops = new Drops(scene, world);
   drops.isHost = mobs.isHost;
+  particles = new Particles(scene);
+  weather = new Weather(scene, world, sky);
+  weather.isHost = mobs.isHost;
+  weather.enabled = settings.get('weather');
+  particles.setVisible(settings.get('particles'));
   hand = new HandView(camera);
   inventory = new Inventory();
   ui.setPlayerInv(inventory);
@@ -290,8 +302,10 @@ function setupGame() {
   player.onLand = (fall) => stats.fallDamage(fall);
 
   cm.setRadius(settings.get('renderDist'));
+  cm.setFancy(settings.get('fancy'));
   sky.setRenderDistance(settings.get('renderDist') * CHUNK);
   sky.setCloudsVisible(settings.get('clouds'));
+  document.getElementById('vignette').classList.toggle('hidden', !settings.get('vignette'));
   camera.fov = settings.get('fov');
   camera.updateProjectionMatrix();
 
@@ -300,7 +314,7 @@ function setupGame() {
     get player() { return player; }, get world() { return world; }, get ui() { return ui; },
     get net() { return net; }, get sky() { return sky; }, get inventory() { return inventory; },
     get stats() { return stats; }, get mobs() { return mobs; }, get drops() { return drops; },
-    get lighting() { return lighting; }, get cm() { return cm; }, get scene() { return scene; },
+    get lighting() { return lighting; }, get cm() { return cm; }, get scene() { return scene; }, get particles() { return particles; }, get weather() { return weather; },
   };
   window.__testAction = (btn) => doAction(btn);
   window.__testGive = (id, count) => { inventory.add({ id, count }); hud.updateHotbar(inventory, inventory.selected); };
@@ -370,6 +384,8 @@ function teardownGame() {
   if (avatars) { avatars.clear(); avatars = null; }
   if (mobs) { mobs.clear(); mobs = null; }
   if (drops) { drops.clear(); drops = null; }
+  if (particles) { particles = null; }
+  if (weather) { sfx.stopRain(); weather = null; }
   highlight.visible = false;
   crackMesh.visible = false;
   keys.clear();
@@ -509,6 +525,10 @@ function netHandlers() {
       mobs.difficulty = d;
     },
 
+    onWeather: (s) => {
+      weather?.setState(s);
+    },
+
     onPickupRequest: (connId, dropId) => {
       // host validates loosely and grants
       const e = drops.map.get(dropId);
@@ -638,6 +658,7 @@ function applyMobHit(mobId, dmg, kx, kz, sourceId) {
   if (res.died && pos) {
     sfx.mobDeath();
     for (const st of res.drops) drops.spawn(st, pos.x, pos.y + 0.5, pos.z);
+    particles?.burst(pos.x, pos.y + 0.6, pos.z, ['#c4c4c4', '#9a9a9a', '#e8e8e8'], 20, 2.4);
   }
 }
 
@@ -731,6 +752,7 @@ function doAction(btn) {
   net?.sendEdit(tx, ty, tz, held.id);
   sfx.place(BLOCKS[held.id].sound);
   hand.swing();
+  particles?.burst(tx + 0.5, ty + 1.05, tz + 0.5, tileColors(held.id), 6, 1.2);
   if (myGamemode === 'survival') {
     inventory.consumeHeldOne();
     hud.updateHotbar(inventory, inventory.selected);
@@ -776,6 +798,7 @@ function doBreak(hit) {
   world.removeContainer(hit.x, hit.y, hit.z);
   sfx.break_(bl.sound);
   hand.swing();
+  particles?.burst(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, tileColors(hit.id), 18, 3);
 
   if (!creative) {
     // drops (host spawns for everyone)
@@ -987,6 +1010,14 @@ function applySettings(key) {
     else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   } else if (key === 'showFps') {
     ui.toggleDebug(!!settings.get('showFps'));
+  } else if (key === 'particles') {
+    particles?.setVisible(settings.get('particles'));
+  } else if (key === 'weather') {
+    if (weather) weather.enabled = settings.get('weather');
+  } else if (key === 'fancy') {
+    cm?.setFancy(settings.get('fancy'));
+  } else if (key === 'vignette') {
+    document.getElementById('vignette').classList.toggle('hidden', !settings.get('vignette'));
   }
   // gamma + sens + invertY are read live in the render loop / look()
 }
@@ -1077,6 +1108,23 @@ function animate() {
 
     player.applyToCamera(camera);
 
+    // view bob while walking on the ground + sprint FOV kick
+    const hSpeed = Math.hypot(player.vel.x, player.vel.z);
+    if (player.onGround && hSpeed > 0.5) bobPhase += dt * hSpeed * 1.7;
+    const bobAmp = Math.min(hSpeed / 6.8, 1) * 0.05;
+    const bobY = Math.abs(Math.sin(bobPhase)) * bobAmp;
+    const bobX = Math.sin(bobPhase) * bobAmp * 0.6;
+    const bobRoll = Math.sin(bobPhase) * bobAmp * 0.35;
+    camera.position.y += bobY - bobAmp * 0.4;
+    const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+    camera.position.addScaledVector(right, bobX);
+    camera.rotation.z += bobRoll;
+    const targetFov = settings.get('fov') * (player.sprinting && hSpeed > 4 ? 1.08 : 1);
+    if (Math.abs(camera.fov - targetFov) > 0.05) {
+      camera.fov += (targetFov - camera.fov) * Math.min(1, 8 * dt);
+      camera.updateProjectionMatrix();
+    }
+
     // targeting + mining
     const hit = player.raycast();
     if (hit.hit && active) {
@@ -1121,6 +1169,7 @@ function animate() {
     // world streaming + sky
     cm.update(player.pos.x, player.pos.z, 6);
     sky.update(dt, camera.position, player.headInWater);
+    TERRAIN_UNIFORMS.uTime.value += dt;
     const gamma = settings.get('gamma');
     cm.setDaylight(sky.dayFactor, gamma, { color: scene.fog.color, near: scene.fog.near, far: scene.fog.far });
     avatars.setBrightness(0.25 + 0.75 * sky.dayFactor);
@@ -1151,6 +1200,16 @@ function animate() {
 
     drops.update(dt);
     drops.interpolate(dt);
+
+    // weather (host simulates, clients mirror state) + ambient rain audio
+    if (net?.mode === 'host') {
+      weather.update(dt, player, camera.position, () => sfx.thunder());
+    } else {
+      weather.update(dt, player, camera.position, () => {});
+    }
+    if (weather.state === 'rain' && weather.enabled && !stats.dead) sfx.startRain();
+    else sfx.stopRain();
+    particles.update(dt, world);
     hand.update(dt, Math.hypot(player.vel.x, player.vel.z), player.onGround);
 
     // item pickup
@@ -1225,6 +1284,7 @@ function animate() {
       if (now - lastTimeSync > 30000) {
         lastTimeSync = now;
         net.hostTime(sky.getTime());
+        net.broadcast({ t: 'weather', s: weather.getState() });
       }
     }
 

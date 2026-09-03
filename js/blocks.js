@@ -106,7 +106,8 @@ function def(id, name, opt = {}) {
     tier: opt.tier ?? 0,                 // min tool tier for drops
     needsTool: opt.needsTool ?? false,
     drops: opt.drops,                    // undefined => itself
-    light: opt.light ?? 0,               // emission 0..15
+    light: opt.light ?? 0,               // emission intensity 0..15
+    lightColor: opt.lightColor ?? [1, 1, 1], // emission tint for colored light
     liquid: opt.liquid ?? false,
     damage: opt.damage ?? 0,             // contact damage per second
     interact: opt.interact ?? null,      // 'table' | 'furnace' | 'chest'
@@ -188,12 +189,12 @@ def(B.WILD_GRASS, 'Wild grass', { all: 'tall_grass', solid: false, opaque: false
 def(B.DEAD_BUSH, 'Dead bush', { all: 'dead_bush', solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants', drops: () => (Math.random() < 0.35 ? [{ id: I.STICK, count: 1 }] : []) });
 
 // --- functional / special ---
-def(B.TORCH, 'Torch', { all: 'torch', solid: false, opaque: false, cross: true, sound: 'wood', hardness: 0.05, light: 14, group: 'building' });
+def(B.TORCH, 'Torch', { all: 'torch', solid: false, opaque: false, cross: true, sound: 'wood', hardness: 0.05, light: 14, lightColor: [1.0, 0.62, 0.28], group: 'building' });
 def(B.TABLE, 'Crafting table', { top: 'table_top', side: 'table_side', bottom: 'oak_planks', sound: 'wood', hardness: 2.5, tool: 'axe', interact: 'table', group: 'building' });
 def(B.FURNACE, 'Furnace', { top: 'furnace_top', side: 'furnace_side', bottom: 'furnace_top', hardness: 3.5, tool: 'pickaxe', needsTool: true, interact: 'furnace', group: 'building' });
 def(B.CHEST, 'Chest', { top: 'chest_top', side: 'chest_side', bottom: 'chest_top', sound: 'wood', hardness: 2.5, tool: 'axe', interact: 'chest', group: 'building' });
-def(B.GLOWSTONE, 'Glowstone', { all: 'glowstone', sound: 'glass', hardness: 0.3, light: 15, group: 'building' });
-def(B.LAVA, 'Lava', { all: 'lava', solid: false, opaque: false, water: true, liquid: true, light: 15, hardness: 1e9, breakable: false, damage: 8 });
+def(B.GLOWSTONE, 'Glowstone', { all: 'glowstone', sound: 'glass', hardness: 0.3, light: 15, lightColor: [1.0, 0.85, 0.5], group: 'building' });
+def(B.LAVA, 'Lava', { all: 'lava', solid: false, opaque: false, water: true, liquid: true, light: 15, lightColor: [1.0, 0.32, 0.1], hardness: 1e9, breakable: false, damage: 8 });
 def(B.CACTUS, 'Cactus', { side: 'cactus_side', top: 'cactus_top', bottom: 'cactus_top', sound: 'wool', hardness: 0.4, damage: 2, group: 'plants' });
 def(B.PUMPKIN, 'Pumpkin', { top: 'pumpkin_top', side: 'pumpkin_side', bottom: 'pumpkin_top', sound: 'wood', hardness: 1, tool: 'axe', group: 'natural' });
 

@@ -270,6 +270,7 @@ export class Net {
         else if (msg.t === 'cmdout') this.handlers.onCmdout?.(msg.text);
         else if (msg.t === 'cstate') this.handlers.onContainerState?.(msg.k, msg.data);
         else if (msg.t === 'difficulty') this.handlers.onDifficulty?.(msg.d);
+        else if (msg.t === 'weather') this.handlers.onWeather?.(msg.s);
       });
       conn.on('close', () => {
         if (this.mode === 'client' && this._gotInit) this.handlers.onHostGone();

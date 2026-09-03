@@ -288,6 +288,11 @@
   .toast { background: rgba(0,0,0,0.85); border: 2px solid rgba(255,255,255,0.3); padding: 6px 16px; font-size: 19px; animation: toastin 0.18s ease-out; }
   @keyframes toastin { from { transform: translateY(-8px); opacity: 0; } }
 
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none; z-index: 15;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 52%, rgba(0,0,0,0.38) 100%);
+  }
+
   #mobile-warn { z-index: 80; background: #14111f; flex-direction: column; gap: 10px; padding: 30px; text-align: center; }
 </style>
 </head>
@@ -392,6 +397,7 @@
   <div id="player-list" class="hidden"></div>
 </div>
 
+<div id="vignette" class="hidden"></div>
 <div id="mobile-warn" class="overlay hidden">
   <h1 style="font-size:34px">TERRAVALE</h1>
   <p>This world needs a keyboard &amp; mouse.<br>Please open it on a desktop browser.</p>
@@ -402,6 +408,11 @@
 <script>
   // early error capture — surfaces module load/runtime errors for debugging
   window.__errs = [];
+  const origErr = console.error;
+  console.error = (...args) => {
+    window.__errs.push('console.error: ' + args.map(a => (typeof a === 'string' ? a : (a?.message || JSON.stringify(a).slice(0, 200)))).join(' | ').slice(0, 500));
+    origErr(...args);
+  };
   window.addEventListener('error', (e) => window.__errs.push(String(e.message) + ' @ ' + (e.filename || '') + ':' + e.lineno + '\nSTACK: ' + (e.error && e.error.stack ? e.error.stack : '(none)')));
   window.addEventListener('unhandledrejection', (e) => window.__errs.push('promise: ' + String(e.reason)));
 </script>

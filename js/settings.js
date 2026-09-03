@@ -46,6 +46,10 @@ export const DEFAULTS = {
   sfx: 1.0,
   autoJump: false,
   hints: true,
+  particles: true,      // block-break/dust/ember effects
+  weather: true,        // rain + snow + thunder
+  fancy: true,          // foliage sway + water animation
+  vignette: true,       // cinematic edge darkening
   binds: { ...DEFAULT_BINDS },
 };
 

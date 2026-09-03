@@ -17,9 +17,35 @@ export const MOB_NAMES = Object.keys(MOB_TYPES);
 let NEXT_MOB = 1;
 
 // ---- rigs ----
+// noise-shaded material: gives flat boxes subtle depth without real lighting
+function shadeHex(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v) => Math.max(0, Math.min(255, v + amt));
+  return `rgb(${ch((n >> 16) & 255)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
+}
+
+const shadedMatCache = new Map();
+function shadedMaterial(colorHex) {
+  if (shadedMatCache.has(colorHex)) return shadedMatCache.get(colorHex).clone();
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = colorHex;
+  ctx.fillRect(0, 0, 32, 32);
+  for (let i = 0; i < 220; i++) {
+    ctx.fillStyle = shadeHex(colorHex, (Math.random() - 0.5) * 30);
+    ctx.fillRect(Math.floor(Math.random() * 32), Math.floor(Math.random() * 32), 2, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  const mat = new THREE.MeshBasicMaterial({ map: tex });
+  shadedMatCache.set(colorHex, mat);
+  return mat.clone();
+}
+
 function boxPart(w, h, d, color) {
-  const mat = new THREE.MeshBasicMaterial({ color });
-  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), shadedMaterial(color));
 }
 
 function buildQuadruped(bodyColor, headColor, legColor, fluffy) {
