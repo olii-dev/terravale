@@ -5,6 +5,22 @@
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const PEER_PREFIX = 'tva1-';
 
+// STUN for NAT discovery + free public TURN relays (Open Relay Project) so
+// players behind strict NATs (mobile hotspots, school Wi-Fi) can still connect
+const PEER_CONFIG = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:global.stun.twilio.com:3478' },
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    ],
+    sdpSemantics: 'unified-plan',
+  },
+  debug: 1,
+};
+
 export function makeRoomCode() {
   let s = '';
   for (let i = 0; i < 5; i++) s += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
@@ -34,7 +50,7 @@ export class Net {
     this.players.set(0, { name: myName, color: myColor, conn: null, pos: null });
 
     this.handlers.onStatus('Starting room ' + code + '…');
-    const peer = new Peer(PEER_PREFIX + code, { debug: 1 });
+    const peer = new Peer(PEER_PREFIX + code, PEER_CONFIG);
     this.peer = peer;
 
     peer.on('open', () => this.handlers.onReady(code));
@@ -197,22 +213,41 @@ export class Net {
     this.mode = 'client';
     this.code = code;
     this.handlers.onStatus('Looking for room ' + code + '…');
-    const peer = new Peer({ debug: 1 });
+    const peer = new Peer(PEER_CONFIG);
     this.peer = peer;
 
     peer.on('open', () => {
       this.handlers.onStatus('Connecting to host…');
       const conn = peer.connect(PEER_PREFIX + code, { reliable: true });
       this.conn = conn;
+      const fail = (msg) => {
+        if (this._gotInit || this._failed) return;
+        this._failed = true;
+        clearTimeout(failTimer);
+        this.handlers.onError(msg);
+      };
       const failTimer = setTimeout(() => {
-        if (!this._gotInit) this.handlers.onError('Could not reach that room. Check the code (and that the host is online).');
+        fail('Could not reach that room. Check the code (and that the host is online — their tab must stay open).');
       }, 12000);
+
+      // fast, specific feedback when the direct connection can't form
+      const watchIce = () => {
+        const pc = conn.peerConnection;
+        if (!pc) { setTimeout(watchIce, 200); return; }
+        pc.addEventListener('iceconnectionstatechange', () => {
+          if (pc.iceConnectionState === 'failed' || pc.connectionState === 'failed') {
+            fail('Could not establish a direct connection (strict network). Both players: reload the site, or try a different network (e.g. disable VPN).');
+          }
+        });
+      };
+      watchIce();
+
       conn.on('open', () => conn.send({ t: 'hi', name: myName, color: myColor }));
       conn.on('data', (msg) => {
         if (!msg || typeof msg !== 'object') return;
         if (msg.t === 'init') {
-          clearTimeout(failTimer);
           this._gotInit = true;
+          clearTimeout(failTimer);
           this.myId = msg.yourId;
           this.handlers.onInit(msg);
         } else if (msg.t === 'pos') this.handlers.onPos(msg.id, msg);
@@ -237,13 +272,16 @@ export class Net {
         else if (msg.t === 'difficulty') this.handlers.onDifficulty?.(msg.d);
       });
       conn.on('close', () => {
-        if (this.mode === 'client') this.handlers.onHostGone();
+        if (this.mode === 'client' && this._gotInit) this.handlers.onHostGone();
       });
     });
 
     peer.on('error', (err) => {
-      if (err.type === 'peer-unavailable') this.handlers.onError('No room with code ' + code + ' is online right now.');
-      else console.warn('peer error:', err.type, err.message);
+      if (this._gotInit) { console.warn('peer error:', err.type, err.message); return; }
+      if (err.type === 'peer-unavailable') fail('No room with code ' + code + ' is online right now. Check the code — and that the host is hosting right now.');
+      else if (err.type === 'network' || err.type === 'server-error') fail('Lost contact with the room broker. Check your internet and try again.');
+      else if (err.type === 'browser-incompatible') fail('This browser cannot do peer-to-peer. Use desktop Chrome, Edge or Firefox.');
+      else fail('Connection problem (' + err.type + '). Try again in a moment.');
     });
   }
 
