@@ -13,7 +13,10 @@ export const LAVA_LEVEL = 11;
 const BIOMES = { PLAINS: 0, FOREST: 1, DESERT: 2, SNOWY: 3, TAIGA: 4, SAVANNA: 5 };
 
 // the Nether occupies the world far east of spawn
-export const NETHER_X = 1000000; // the Nether lives 1,000,000 blocks east
+// The Nether mirrors the Overworld offset by +2,000,000 blocks. Overworld
+// x in [-1M, 1M) maps to Nether x in [1M, 3M), so the boundary sits at 1M.
+export const NETHER_OFFSET = 2000000;
+export const NETHER_X = 1000000;
 export function isNetherX(x) { return x >= NETHER_X; }
 
 export function createWorldgen(seed) {

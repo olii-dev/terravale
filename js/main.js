@@ -7,7 +7,7 @@ import { B, BLOCKS, isReplaceable, isCross, dropsFor, waterLevel, waterBlockForL
 import { buildAtlas, TILE_INDEX, getCrackTextures } from './textures.js';
 import { resolveFaceTiles } from './blocks.js';
 import { World, HEIGHT } from './world.js';
-import { CHUNK, NETHER_X, isNetherX } from './worldgen.js';
+import { CHUNK, NETHER_OFFSET, isNetherX } from './worldgen.js';
 import { Lighting } from './lighting.js';
 import { ChunkManager, TERRAIN_UNIFORMS } from './chunks.js';
 import { Player } from './player.js';
@@ -102,7 +102,7 @@ function g0etBlockSafe(world, p) {
 function teleportDimension() {
   const p = player.pos;
   const inNether = isNetherX(p.x);
-  const targetX = inNether ? p.x - NETHER_X : p.x + NETHER_X;
+  const targetX = inNether ? p.x - NETHER_OFFSET : p.x + NETHER_OFFSET;
   // find or build a destination portal near the target
   let px = Math.round(targetX), pz = Math.round(p.z);
   // scan for an existing portal nearby
