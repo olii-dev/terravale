@@ -12,6 +12,10 @@ export const LAVA_LEVEL = 11;
 
 const BIOMES = { PLAINS: 0, FOREST: 1, DESERT: 2, SNOWY: 3, TAIGA: 4, SAVANNA: 5 };
 
+// the Nether occupies the world far east of spawn
+export const NETHER_X = 1000000; // the Nether lives 1,000,000 blocks east
+export function isNetherX(x) { return x >= NETHER_X; }
+
 export function createWorldgen(seed) {
   const nHeight = new SimplexNoise(hashSeed(seed + ':h'));
   const nDetail = new SimplexNoise(hashSeed(seed + ':d'));
@@ -33,6 +37,7 @@ export function createWorldgen(seed) {
   }
 
   function heightAt(x, z) {
+    if (isNetherX(x)) return 30;
     const base = nHeight.fbm2(x / 230, z / 230, 4);
     const hills = nDetail.fbm2(x / 62, z / 62, 3);
     let h = 50 + base * 26 + hills * 8;
@@ -68,6 +73,38 @@ export function createWorldgen(seed) {
     }
   }
 
+  // --- Nether terrain (x >= NETHER_X): cavern between bedrock shells ---
+  function netherBlock(x, y, z) {
+    if (y <= 1 || y >= HEIGHT - 4) return B.BEDROCK;
+    const f = noiseField2(x, y, z);
+    // big open cavern between floor ~30 and ceiling ~118
+    if (y <= 30) {
+      // lava ocean with netherrack shores
+      if (y <= 28) return B.LAVA;
+      return B.NETHERRACK;
+    }
+    if (y >= 118) return B.NETHERRACK;
+    // open space with netherrack islands and pillars
+    const solid = f > 0.62 || (y < 40 && f > 0.5);
+    if (!solid) {
+      // hanging glowstone clusters
+      if (y > 100 && f > 0.585 && f < 0.6) return B.GLOWSTONE;
+      return B.AIR;
+    }
+    // ore-ish variety in the rock
+    if (f > 0.78 && y < 45) return B.QUARTZ_BLOCK;
+    if (f > 0.72 && f < 0.75 && y < 38) return B.SOUL_SAND;
+    return B.NETHERRACK;
+  }
+
+  // cheap deterministic 3D value noise for the nether (no chunk-local state)
+  function noiseField2(x, y, z) {
+    let h = (x * 374761393 + y * 668265263 + z * 2147483647) | 0;
+    h = (h ^ (h >> 13)) | 0;
+    h = Math.imul(h, 1274126177);
+    return ((h ^ (h >> 16)) >>> 0) / 4294967296 * 0.5 + nHeight.noise2(x / 53, z / 67) * 0.25 + 0.25;
+  }
+
   // pure terrain column (no trees). Water fills below sea; caves below the
   // lava level flood with lava.
   function terrainAt(x, y, z, h, biome) {
@@ -88,12 +125,15 @@ export function createWorldgen(seed) {
   }
 
   function terrainBlock(x, y, z, h, biome) {
+    if (isNetherX(x)) return netherBlock(x, y, z);
     let id = terrainAt(x, y, z, h, biome);
     if (id !== B.AIR && id !== B.WATER && caveAt(x, y, z)) {
       id = y <= LAVA_LEVEL ? B.LAVA : B.AIR;
     }
     return id;
   }
+
+  function isNether(x, z) { return isNetherX(x); }
 
   // surface decoration per column (pure)
   function plantAt(x, z, h, biome) {
@@ -247,7 +287,7 @@ export function createWorldgen(seed) {
     return { x: 0.5, y: HEIGHT - 10, z: 0.5 };
   }
 
-  return { seed, generateChunk, heightAt, biomeAt, terrainBlock, spawnPoint, BIOMES };
+  return { seed, generateChunk, heightAt, biomeAt, terrainBlock, spawnPoint, BIOMES, isNether };
 }
 
 export const BIOME_NAMES = ['Plains', 'Forest', 'Desert', 'Snowfield', 'Taiga', 'Savanna'];

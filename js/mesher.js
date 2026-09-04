@@ -34,6 +34,17 @@ function makeBucket() {
   return { pos: [], uv: [], color: [], sky: [], block: [], index: [], count: 0 };
 }
 
+// rotate a uv corner set by n*90 degrees (breaks up texture tiling)
+function rotateUV(uvs, n) {
+  if (!n) return uvs;
+  const out = [[0, 0], [0, 0], [0, 0], [0, 0]];
+  for (let i = 0; i < 4; i++) {
+    const j = (i + n) % 4;
+    out[j] = uvs[i];
+  }
+  return out;
+}
+
 function pushQuad(bucket, verts, uvs, colors, skys, blocks, flip) {
   const base = bucket.count;
   for (let i = 0; i < 4; i++) {
@@ -102,7 +113,9 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
         const tint = TINTED_BLOCKS.has(id) ? BIOME_TINTS[biomes[z * CHUNK + x]] : null;
 
         if (bl.cross) {
-          pushCross(flora, x, y, z, bl.faceTiles[0], x0, z0, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), bl.wallOffset);
+          // only plants sway; torches and other crosses stay still
+          const bucket = bl.plant ? flora : cutout;
+          pushCross(bucket, x, y, z, bl.faceTiles[0], x0, z0, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), bl.wallOffset);
           continue;
         }
 
@@ -125,9 +138,14 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
 
           const bucket = isWaterBlock ? water : bl.glass ? cutout : opaque;
           const rect = uvRect(bl.faceTiles[f]);
-          const uvs = [
+          let uvs = [
             [rect[0], rect[1]], [rect[2], rect[1]], [rect[2], rect[3]], [rect[0], rect[3]],
           ];
+          if (bucket === opaque) {
+            // deterministic per-face rotation: same texture, different orientation
+            const h = ((x * 7 + y * 13 + z * 17 + f * 5) >>> 0) % 4;
+            uvs = rotateUV(uvs, h);
+          }
 
           const verts = [];
           const colors = [];

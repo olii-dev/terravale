@@ -6,6 +6,12 @@
 import { BLOCKS, PALETTE_IDS, GROUP_LABELS, B } from './blocks.js';
 import { ITEMS, nameOf, maxStack, canMerge, isTool, armorOf } from './items.js';
 import { itemIcon } from './sprites.js';
+
+const uiIconCache = new Map();
+function iconURL(id) {
+  if (!uiIconCache.has(id)) uiIconCache.set(id, itemIcon(id, 64).toDataURL());
+  return uiIconCache.get(id);
+}
 import { matchGrid, consumeGrid } from './crafting.js';
 import { getSlot, setSlot, swapSlots, takeHalf, quickMove } from './containers.js';
 import { listWorlds } from './save.js';
@@ -447,7 +453,7 @@ export class UI {
       const s = this.playerInv?.armor[i] ?? null;
       if (s) {
         const img = document.createElement('img');
-        img.src = itemIcon(s.id, 64).toDataURL();
+        img.src = iconURL(s.id);
         slot.appendChild(img);
         slot.addEventListener('mouseenter', () => this.showTooltip(s));
         slot.addEventListener('mouseleave', () => this.hideTooltip());
@@ -562,7 +568,7 @@ export class UI {
     slot.addEventListener('mouseleave', () => { if (this.hoverSlot?.zone === zone && this.hoverSlot?.idx === idx) this.hoverSlot = null; });
     if (s) {
       const img = document.createElement('img');
-      img.src = itemIcon(s.id, 64).toDataURL();
+      img.src = iconURL(s.id);
       img.draggable = false;
       slot.appendChild(img);
       if (s.count > 1) {
@@ -721,7 +727,7 @@ export class UI {
     const el = this.el.cursor;
     if (this.cursorStack) {
       el.style.display = 'block';
-      el.querySelector('img').src = itemIcon(this.cursorStack.id, 64).toDataURL();
+      el.querySelector('img').src = iconURL(this.cursorStack.id);
       el.querySelector('.count').textContent = this.cursorStack.count > 1 ? this.cursorStack.count : '';
     } else {
       el.style.display = 'none';

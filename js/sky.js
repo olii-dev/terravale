@@ -96,6 +96,7 @@ export class Sky {
     this.dayFactor = 1;
     this.overcast = 0;      // 0..1 set by weather
     this.flash = 0;
+    this.nether = false;
 
     this.zenith = new THREE.Color('#4a86c8');
     this.horizon = new THREE.Color('#9ec8ee');
@@ -164,6 +165,12 @@ export class Sky {
   getDayFactor() { return this.dayFactor; }
   setOvercast(f) { this.overcast = Math.max(0, Math.min(1, f)); }
   triggerFlash() { this.flash = 0.85; }
+  setNether(n) {
+    if (this.nether === n) return;
+    this.nether = n;
+    this.dome.visible = !n && this.dome.visible !== false;
+    this.clouds.visible = !n && this.clouds.visible;
+  }
 
   setRenderDistance(blocks) {
     this.fogFar = blocks * 16 - 6;
@@ -174,6 +181,19 @@ export class Sky {
   setCloudsVisible(v) { this.clouds.visible = v; }
 
   update(dt, cameraPos, headInWater) {
+    if (this.nether) {
+      // no sky, no day cycle: cavern gloom with a red fog
+      this.dayFactor = 0.4;
+      this.scene.fog.color.set(0x1a0606);
+      this.scene.fog.near = 6;
+      this.scene.fog.far = 70;
+      this.scene.background = this.scene.background || new THREE.Color();
+      this.scene.background.set(0x1a0606);
+      this.dome.visible = false;
+      this.clouds.visible = false;
+      return;
+    }
+    this.dome.visible = true;
     this.time = (this.time + dt / DAY_LENGTH) % 1;
     const angle = this.time * Math.PI * 2;
     const elev = Math.sin(angle);

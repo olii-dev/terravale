@@ -257,6 +257,17 @@ const ITEM_PAINTERS = {
     px(ctx, 6, 9, '#4e9a30'); px(ctx, 10, 10, '#4e9a30'); px(ctx, 7, 11, '#3d7a24');
     px(ctx, 4, 11, '#4e9a30'); px(ctx, 12, 11, '#4e9a30');
   },
+  [I.FLINT_AND_STEEL](ctx) { // flint & steel
+    ctx.fillStyle = '#54545c';
+    ctx.fillRect(4 * PIX, 3 * PIX, 6 * PIX, 5 * PIX); // flint
+    ctx.fillStyle = '#767680';
+    ctx.fillRect(5 * PIX, 4 * PIX, 2 * PIX, 2 * PIX);
+    ctx.fillStyle = '#c9cdd0'; // steel C shape
+    ctx.fillRect(9 * PIX, 5 * PIX, 4 * PIX, PIX);
+    ctx.fillRect(12 * PIX, 6 * PIX, PIX, 4 * PIX);
+    ctx.fillRect(9 * PIX, 10 * PIX, 4 * PIX, PIX);
+    px(ctx, 9, 6, '#c9cdd0'); px(ctx, 13, 9, '#c9cdd0');
+  },
   [I.BED_ITEM](ctx) { // bed icon
     ctx.fillStyle = '#e9ecec';
     ctx.fillRect(2 * PIX, 6 * PIX, 5 * PIX, 6 * PIX);

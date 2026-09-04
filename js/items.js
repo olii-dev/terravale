@@ -52,6 +52,7 @@ defItem(I.WATER_BUCKET, 'Water bucket', {});
 defItem(I.BOW, 'Bow', { maxDur: 384, damage: 1 });
 defItem(I.ARROW, 'Arrow', {});
 defItem(I.BED_ITEM, 'Bed', {});
+defItem(I.FLINT_AND_STEEL, 'Flint and steel', { maxDur: 64 });
 
 // armor: 140 + slot*5 + tier (slots 0 head, 1 chest, 2 legs, 3 feet)
 export const ARMOR_SLOTS = ['head', 'chest', 'legs', 'feet'];
@@ -74,6 +75,7 @@ for (let slot = 0; slot < 4; slot++) {
   }
 }
 export function armorId(slot, tier) { return I.ARMOR_BASE + slot * 5 + tier; }
+export const isBlockItemId = (id) => id > 0 && id < 200;
 export function armorOf(id) { return ITEMS[id]?.armor ?? null; }
 
 // hoes: separate id range so existing tool ids stay stable
@@ -102,11 +104,11 @@ for (let tier = 0; tier < 5; tier++) {
 }
 
 export function toolId(cls, tier) {
-  return 110 + tier * 4 + TOOL_CLASSES.indexOf(cls);
+  return I.TOOLS_BASE + tier * 4 + TOOL_CLASSES.indexOf(cls);
 }
 
 export function isTool(id) { return ITEMS[id]?.tool ?? null; }
-export function isBlockItem(id) { return id > 0 && id < 100 && !!BLOCKS[id]; }
+export function isBlockItem(id) { return id > 0 && id < 200 && !!BLOCKS[id]; }
 export function isFood(id) { return (ITEMS[id]?.food ?? 0) > 0; }
 
 export function nameOf(id) {

@@ -102,12 +102,11 @@ const PAINTERS = {
   },
   grass_top(ctx, rand) {
     rampFill(ctx, rand, RAMP.grass, { detail: true });
-    // blade tufts
-    for (let i = 0; i < 130; i++) {
+    // soft blade tufts (low contrast so tiling doesn't pop)
+    for (let i = 0; i < 110; i++) {
       const x = Math.floor(rand() * TILE), y = Math.floor(rand() * TILE);
-      const c = pick(rand, ['#5d9034', '#7fbc4a', '#4c7a2a', '#98d463']);
+      const c = pick(rand, ['#659838', '#74b043', '#5d9034', '#83c14f']);
       fillPx(ctx, x, y, c);
-      if (rand() < 0.5) fillPx(ctx, x, y - 1, c);
     }
   },
   grass_side(ctx, rand) {
@@ -613,6 +612,131 @@ const PAINTERS = {
       ctx.fillStyle = '#b39342';
       ctx.fillRect(x, 14, 2, 4);
     }
+  },
+  andesite(ctx, rand) {
+    rampFill(ctx, rand, ['#7e7e7a', '#88888a', '#939395', '#9c9c9e'], { detail: true });
+    speckle(ctx, rand, ['#6a6a68', '#a5a5a7'], 30);
+  },
+  granite(ctx, rand) {
+    rampFill(ctx, rand, ['#8f5a4d', '#9c685a', '#a87666', '#b58473'], { detail: true });
+    speckle(ctx, rand, ['#7a4a3e', '#c49a8a'], 40);
+  },
+  diorite(ctx, rand) {
+    rampFill(ctx, rand, ['#b5b5b8', '#c2c2c5', '#ceced1', '#d8d8db'], { detail: true });
+    speckle(ctx, rand, ['#8e8e92', '#e6e6ea'], 45);
+  },
+  polished_andesite(ctx, rand) {
+    rampFill(ctx, rand, ['#848484', '#8d8d8f', '#96969a'], { octaves: 2 });
+    ctx.strokeStyle = '#6a6a6c'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, TILE - 2, TILE - 2);
+  },
+  polished_granite(ctx, rand) {
+    rampFill(ctx, rand, ['#a06e5e', '#a87868', '#b08272'], { octaves: 2 });
+    ctx.strokeStyle = '#7e5244'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, TILE - 2, TILE - 2);
+  },
+  polished_diorite(ctx, rand) {
+    rampFill(ctx, rand, ['#c4c4c8', '#cdcdd1', '#d6d6da'], { octaves: 2 });
+    ctx.strokeStyle = '#9c9ca0'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, TILE - 2, TILE - 2);
+  },
+  smooth_stone(ctx, rand) {
+    rampFill(ctx, rand, ['#9a9a9a', '#a3a3a3', '#ababab'], { octaves: 2 });
+    ctx.fillStyle = '#8e8e8e';
+    ctx.fillRect(0, 0, TILE, 2);
+  },
+  ice(ctx, rand) {
+    ctx.fillStyle = 'rgba(120,180,235,0.85)';
+    ctx.fillRect(0, 0, TILE, TILE);
+    // cracks + shine
+    ctx.strokeStyle = 'rgba(220,240,255,0.5)';
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.moveTo(rand() * TILE, rand() * TILE);
+      ctx.lineTo(rand() * TILE, rand() * TILE);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(240,250,255,0.5)';
+    ctx.fillRect(3, 3, 8, 3);
+  },
+  packed_ice(ctx, rand) {
+    rampFill(ctx, rand, ['#8db8e0', '#9cc4e8', '#abd0f0'], { octaves: 2 });
+    ctx.strokeStyle = 'rgba(230,245,255,0.4)';
+    for (let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      ctx.moveTo(rand() * TILE, rand() * TILE);
+      ctx.lineTo(rand() * TILE, rand() * TILE);
+      ctx.stroke();
+    }
+  },
+  terracotta(ctx, rand) {
+    rampFill(ctx, rand, ['#8e5a3c', '#9c6644', '#a8704a', '#b47a52'], { detail: true });
+  },
+  netherrack(ctx, rand) {
+    rampFill(ctx, rand, ['#5c1e1e', '#6e2626', '#7e2e2e', '#8e3838'], { detail: true });
+    speckle(ctx, rand, ['#4a1414', '#a04848'], 45);
+  },
+  soul_sand(ctx, rand) {
+    rampFill(ctx, rand, ['#4a3a30', '#56443a', '#624e42'], { detail: true });
+    // screaming faces hint
+    ctx.fillStyle = '#2e221c';
+    ctx.fillRect(5, 8, 4, 6); ctx.fillRect(20, 8, 4, 6);
+    ctx.fillRect(10, 20, 12, 4);
+  },
+  nether_bricks(ctx, rand) {
+    PAINTERS.brickPattern('#3a2226', '#241417')(ctx, rand);
+  },
+  magma(ctx, rand) {
+    rampFill(ctx, rand, ['#2e1a10', '#4a2414', '#8a3818', '#c45816', '#e8801e'], { detail: true });
+    for (let i = 0; i < 10; i++) {
+      const x = Math.floor(rand() * (TILE - 6)), y = Math.floor(rand() * TILE);
+      ctx.fillStyle = pick(rand, ['#ffb84a', '#ffd07a']);
+      ctx.fillRect(x, y, 4 + Math.floor(rand() * 5), 1);
+    }
+  },
+  quartz_block(ctx, rand) {
+    rampFill(ctx, rand, ['#e4e2de', '#ebe9e5', '#f2f0ec'], { octaves: 2 });
+    ctx.fillStyle = '#d2d0cc';
+    ctx.fillRect(0, TILE - 2, TILE, 2);
+  },
+  crimson_stem_side(ctx, rand) {
+    rampFill(ctx, rand, ['#5e1f2a', '#6e2530', '#7e2b38'], { octaves: 2 });
+    for (let x = 0; x < TILE; x += 5) {
+      ctx.fillStyle = '#4a1822';
+      ctx.fillRect(x, 0, 2, TILE);
+    }
+    speckle(ctx, rand, ['#8e3545'], 20);
+  },
+  crimson_stem_top(ctx, rand) {
+    fillAll(ctx, '#7e2b38');
+    ctx.strokeStyle = '#5e1f2a'; ctx.lineWidth = 2;
+    for (let r = 13; r > 2; r -= 4) {
+      ctx.beginPath(); ctx.arc(16, 16, r, 0, Math.PI * 2); ctx.stroke();
+    }
+  },
+  crimson_planks(ctx, rand) {
+    PAINTERS.planks('#6e2530', '#4a1822')(ctx, rand);
+  },
+  warped_stem_side(ctx, rand) {
+    rampFill(ctx, rand, ['#184a4a', '#1e5a58', '#256a66'], { octaves: 2 });
+    for (let x = 0; x < TILE; x += 5) {
+      ctx.fillStyle = '#123a3a';
+      ctx.fillRect(x, 0, 2, TILE);
+    }
+    speckle(ctx, rand, ['#2e7a76'], 20);
+  },
+  warped_stem_top(ctx, rand) {
+    fillAll(ctx, '#256a66');
+    ctx.strokeStyle = '#184a4a'; ctx.lineWidth = 2;
+    for (let r = 13; r > 2; r -= 4) {
+      ctx.beginPath(); ctx.arc(16, 16, r, 0, Math.PI * 2); ctx.stroke();
+    }
+  },
+  warped_planks(ctx, rand) {
+    PAINTERS.planks('#1e5a58', '#123a3a')(ctx, rand);
+  },
+  portal(ctx, rand) {
+    // swirly purple
+    rampFill(ctx, rand, ['#6a1e9c', '#7a28b0', '#8a32c4', '#9c3cd8'], { detail: true });
+    speckle(ctx, rand, ['#b45ce8', '#d48cf0'], 30);
+    speckle(ctx, rand, ['#4a1470'], 14);
   },
   bed_top(ctx, rand) {
     // red blanket with white pillow

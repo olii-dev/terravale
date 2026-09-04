@@ -7,7 +7,7 @@ import { B, BLOCKS, isReplaceable, isCross, dropsFor, waterLevel, waterBlockForL
 import { buildAtlas, TILE_INDEX, getCrackTextures } from './textures.js';
 import { resolveFaceTiles } from './blocks.js';
 import { World, HEIGHT } from './world.js';
-import { CHUNK } from './worldgen.js';
+import { CHUNK, NETHER_X, isNetherX } from './worldgen.js';
 import { Lighting } from './lighting.js';
 import { ChunkManager, TERRAIN_UNIFORMS } from './chunks.js';
 import { Player } from './player.js';
@@ -93,7 +93,52 @@ let lastPosSend = 0, lastSaveAt = 0, lastTimeSync = 0, lastEntitySync = 0, lastM
 let lastCstate = 0, furnaceUiTick = 0;
 let frames = 0, fpsTime = 0, fps = 0;
 let pickupReqT = new Map();
-let deathDropped = false, bobPhase = 0, bowCharging = 0, hurtTilt = 0;
+let deathDropped = false, bobPhase = 0, bowCharging = 0, hurtTilt = 0, portalTime = 0;
+
+function g0etBlockSafe(world, p) {
+  return world.getBlock(Math.floor(p.x), Math.floor(p.y + 0.1), Math.floor(p.z));
+}
+
+function teleportDimension() {
+  const p = player.pos;
+  const inNether = isNetherX(p.x);
+  const targetX = inNether ? p.x - NETHER_X : p.x + NETHER_X;
+  // find or build a destination portal near the target
+  let px = Math.round(targetX), pz = Math.round(p.z);
+  // scan for an existing portal nearby
+  let found = null;
+  for (let dx = -12; dx <= 12 && !found; dx++) for (let dz = -12; dz <= 12 && !found; dz++) {
+    for (let y = 40; y < 100; y++) {
+      if (world.getBlock(px + dx, y, pz + dz) === B.NETHER_PORTAL) { found = [px + dx, y, pz + dz]; break; }
+    }
+  }
+  if (found) {
+    player.pos.set(found[0] + 0.5, found[1], found[2] + 0.5);
+  } else {
+    // build a return portal on a small platform
+    const baseY = inNether ? 90 : 80; // high; a platform drops you safely-ish
+    for (let dx = -2; dx <= 3; dx++) for (let dz = -2; dz <= 2; dz++) {
+      world.setBlock(px + dx, baseY - 1, pz + dz, inNether ? B.NETHERRACK : B.STONE);
+    }
+    // frame: 2 wide (x) 3 tall (y)
+    for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 2; dx++) {
+      world.setBlock(px + dx, baseY + dy, pz, B.NETHER_PORTAL);
+    }
+    world.setBlock(px - 1, baseY - 1 + 1, pz, B.OBSIDIAN); world.setBlock(px + 2, baseY, pz, B.OBSIDIAN);
+    for (let dx = -1; dx <= 2; dx++) {
+      world.setBlock(px + dx, baseY - 1 + 3, pz, B.OBSIDIAN);
+      world.setBlock(px + dx, baseY - 1, pz, B.OBSIDIAN);
+    }
+    for (let dy = 0; dy < 3; dy++) {
+      world.setBlock(px - 1, baseY + dy, pz, B.OBSIDIAN);
+      world.setBlock(px + 2, baseY + dy, pz, B.OBSIDIAN);
+    }
+    player.pos.set(px + 0.5, baseY, pz + 1.5);
+  }
+  player.vel.set(0, 0, 0);
+  chat.add({ text: inNether ? 'You return to the Overworld.' : 'You enter the Nether…', system: true });
+  sfx.flyWhoosh();
+}
 const worldtickLater = []; // crop ids to register once worldtick exists
 const keys = new Set();
 const actions = new Set();
@@ -311,7 +356,7 @@ function setupGame() {
   worldtick = new WorldTick(world);
   worldtick.isHost = mobs.isHost;
   worldtick.onEdit = (x, y, z, id) => { if (net?.mode === 'host') net.hostEdit(x, y, z, id); };
-  world.onBlockChanged2 = (x, y, z, id) => worldtick.notifyBlock(x, y, z, id);
+  world.onBlockChanged2 = (x, y, z, id) => worldtick?.notifyBlock(x, y, z, id);
   hand = new HandView(camera);
   inventory = new Inventory();
   ui.setPlayerInv(inventory);
@@ -334,7 +379,7 @@ function setupGame() {
     get player() { return player; }, get world() { return world; }, get ui() { return ui; },
     get net() { return net; }, get sky() { return sky; }, get inventory() { return inventory; },
     get stats() { return stats; }, get mobs() { return mobs; }, get drops() { return drops; },
-    get lighting() { return lighting; }, get cm() { return cm; }, get scene() { return scene; }, get particles() { return particles; }, get weather() { return weather; }, get waterSim() { return waterSim; }, get worldtick() { return worldtick; },
+    get lighting() { return lighting; }, get cm() { return cm; }, get scene() { return scene; }, get particles() { return particles; }, get weather() { return weather; }, get waterSim() { return waterSim; }, get worldtick() { return worldtick; }, teleportDimension, tryLightPortalAt: (x, y, z) => tryLightPortal({ px: x, py: y, pz: z, id: B.OBSIDIAN, hit: true }),
   };
   window.__testAction = (btn) => doAction(btn);
   window.__testGive = (id, count) => { inventory.add({ id, count }); hud.updateHotbar(inventory, inventory.selected); };
@@ -840,6 +885,18 @@ function doAction(btn) {
     hand.setHeld(inventory.held());
     return;
   }
+  // flint & steel: light a nether portal on obsidian
+  if (held && held.id === I.FLINT_AND_STEEL && hit.id === B.OBSIDIAN) {
+    const lit = tryLightPortal(hit);
+    if (lit) {
+      sfx.place('glass');
+      if (inventory.damageHeldTool()) sfx.toolBreak();
+    } else {
+      chat.add({ text: 'Build a 2×3 obsidian frame first.', system: true });
+    }
+    return;
+  }
+
   // bow: ignore here (charging handled on mousedown/up)
   if (held && held.id === I.BOW) {
     return; // bow handled by hold-to-charge
@@ -864,6 +921,66 @@ function doAction(btn) {
     hud.updateHotbar(inventory, inventory.selected);
     hand.setHeld(inventory.held());
   }
+}
+
+// validate a 2x3 interior nether portal frame touching the given air cell;
+// returns the interior cells to fill, or null
+function checkPortalFrame(ax, ay, az) {
+  const world_ = world;
+  const isObs = (x, y, z) => world_.getBlock(x, y, z) === B.OBSIDIAN;
+  const isAir = (x, y, z) => world_.getBlock(x, y, z) === B.AIR;
+  for (const plane of ['x', 'z']) {
+    for (let oy = -2; oy <= 0; oy++) {
+      for (let ox = -1; ox <= 0; ox++) {
+        const oz = plane === 'x' ? 0 : ox; ox = plane === 'x' ? ox : 0;
+        // interior origin (bottom-left)
+        const bx = ax + (plane === 'x' ? ox : 0);
+        const by = ay + oy;
+        const bz = az + (plane === 'z' ? ox : 0);
+        let ok = true;
+        const cells = [];
+        for (let w = 0; w < 2 && ok; w++) {
+          for (let h = 0; h < 3 && ok; h++) {
+            const cx = bx + (plane === 'x' ? w : 0);
+            const cz = bz + (plane === 'z' ? w : 0);
+            if (!isAir(cx, by + h, cz)) ok = false;
+            cells.push([cx, by + h, cz]);
+          }
+        }
+        if (!ok) continue;
+        // ring check: bottom, top, left, right all obsidian
+        for (let w = 0; w < 2 && ok; w++) {
+          const wx = bx + (plane === 'x' ? w : 0);
+          const wz = bz + (plane === 'z' ? w : 0);
+          if (!isObs(wx, by - 1, wz)) ok = false;
+          if (!isObs(wx, by + 3, wz)) ok = false;
+        }
+        for (let h = 0; h < 3 && ok; h++) {
+          if (plane === 'x') {
+            if (!isObs(bx - 1, by + h, bz)) ok = false;
+            if (!isObs(bx + 2, by + h, bz)) ok = false;
+          } else {
+            if (!isObs(bx, by + h, bz - 1)) ok = false;
+            if (!isObs(bx, by + h, bz + 2)) ok = false;
+          }
+        }
+        if (ok) return cells;
+      }
+    }
+  }
+  return null;
+}
+
+function tryLightPortal(hit) {
+  // the clicked face's adjacent cell is where portal air would be
+  const ax = hit.px, ay = hit.py, az = hit.pz;
+  const cells = checkPortalFrame(ax, ay, az);
+  if (!cells) return false;
+  for (const [x, y, z] of cells) {
+    world.setBlock(x, y, z, B.NETHER_PORTAL);
+    net?.sendEdit(x, y, z, B.NETHER_PORTAL);
+  }
+  return true;
 }
 
 function trySleep(hit) {
@@ -1352,7 +1469,23 @@ function animate() {
     }
     // world streaming + sky
     cm.update(player.pos.x, player.pos.z, 6);
+    const inNether = isNetherX(player.pos.x);
+    sky.setNether(inNether);
     sky.update(dt, camera.position, player.headInWater);
+
+    // portal standing → teleport between dimensions
+    if (!stats.dead) {
+      const head = g0etBlockSafe(world, camera.position);
+      const feet = head; // same cell test for simplicity
+      if (head === B.NETHER_PORTAL) {
+        portalTime += dt;
+        if (portalTime > 1.2) {
+          portalTime = -3; // cooldown
+          teleportDimension();
+        }
+      } else if (portalTime > 0) portalTime = 0;
+      else portalTime = Math.min(0, portalTime + dt);
+    }
     TERRAIN_UNIFORMS.uTime.value += dt;
     const gamma = settings.get('gamma');
     cm.setDaylight(sky.dayFactor, gamma, { color: scene.fog.color, near: scene.fog.near, far: scene.fog.far });

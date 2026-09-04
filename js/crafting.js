@@ -66,7 +66,10 @@ R.push(shaped(stack(I.BOW), [[0, I.STICK, I.STRING], [I.STICK, 0, I.STRING], [0,
 R.push(shaped(stack(I.ARROW, 4), [[I.FLINT], [I.STICK], [I.FEATHER]]));
 
 // bucket
-R.push(shaped(stack(I.BUCKET), [[102, 0, 102], [0, 102, 0]]));
+R.push(shaped(stack(I.BUCKET), [[I.IRON_INGOT, 0, I.IRON_INGOT], [0, I.IRON_INGOT, 0]]));
+
+// flint and steel
+R.push(shapeless(stack(I.FLINT_AND_STEEL), [I.IRON_INGOT, I.FLINT]));
 
 // bed: wool over planks
 R.push(shaped(stack(I.BED_ITEM), [

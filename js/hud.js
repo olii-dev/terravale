@@ -2,6 +2,13 @@
 // item name popup. Rebuilds are cheap and happen only on state changes.
 
 import { itemIcon, hudIconURL } from './sprites.js';
+
+// cached icon data-urls: hotbar rebuilds are frequent, toDataURL is not cheap
+const iconURLCache = new Map();
+function iconURL(id) {
+  if (!iconURLCache.has(id)) iconURLCache.set(id, itemIcon(id, 64).toDataURL());
+  return iconURLCache.get(id);
+}
 import { BLOCKS } from './blocks.js';
 import { ITEMS, nameOf } from './items.js';
 
@@ -87,7 +94,7 @@ export class Hud {
       slot.className = 'hslot' + (i === selected ? ' selected' : '');
       if (s) {
         const img = document.createElement('img');
-        img.src = itemIcon(s.id, 64).toDataURL();
+        img.src = iconURL(s.id);
         img.draggable = false;
         slot.appendChild(img);
         if (s.count > 1) {

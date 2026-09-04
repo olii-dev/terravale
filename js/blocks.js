@@ -88,6 +88,26 @@ export const B = {
   WATER_FLOW5: 80,
   WATER_FLOW6: 81,
   WATER_FLOW7: 82,
+  ANDESITE: 83,
+  GRANITE: 84,
+  DIORITE: 85,
+  POLISHED_ANDESITE: 86,
+  POLISHED_GRANITE: 87,
+  POLISHED_DIORITE: 88,
+  SMOOTH_STONE: 89,
+  ICE: 90,
+  PACKED_ICE: 91,
+  TERRACOTTA: 92,
+  NETHERRACK: 100,
+  SOUL_SAND: 101,
+  NETHER_BRICKS: 102,
+  MAGMA: 103,
+  QUARTZ_BLOCK: 104,
+  CRIMSON_STEM: 105,
+  CRIMSON_PLANKS: 106,
+  WARPED_STEM: 107,
+  WARPED_PLANKS: 108,
+  NETHER_PORTAL: 109,
 };
 
 // flowing-water helpers: every water-ish id maps to a level 0..7 (0 = source)
@@ -102,35 +122,37 @@ export function waterBlockForLevel(level) {
   return level <= 0 ? B.WATER : B.WATER_FLOW1 + level - 1;
 }
 
-// item ids (registry details in items.js)
+// item ids (registry details in items.js). Items live at 200+ so the
+// 100..199 range stays free for block ids.
 export const I = {
-  STICK: 100,
-  COAL: 101,
-  IRON_INGOT: 102,
-  GOLD_INGOT: 103,
-  DIAMOND: 104,
-  APPLE: 105,
-  RAW_MEAT: 106,
-  COOKED_MEAT: 107,
-  WHEAT: 108,
-  SEEDS: 109,
-  TOOLS_BASE: 110, // 110 + tier*4 + class; tiers: wood, stone, iron, gold, diamond
-  BREAD: 120,
-  STRING: 121,
-  FEATHER: 122,
-  FLINT: 123,
-  BEEF: 124,
-  COOKED_BEEF: 125,
-  CHICKEN_RAW: 126,
-  CHICKEN_COOKED: 127,
-  LEATHER: 128,
-  BUCKET: 129,
-  WATER_BUCKET: 130,
-  BOW: 131,
-  ARROW: 132,
-  BED_ITEM: 133,
-  ARMOR_BASE: 140, // 140 + slot*5 + tier; slots: head/chest/legs/feet, tiers leather..diamond
-  HOE_BASE: 160,   // 160 + tier (wooden..diamond hoe)
+  STICK: 200,
+  COAL: 201,
+  IRON_INGOT: 202,
+  GOLD_INGOT: 203,
+  DIAMOND: 204,
+  APPLE: 205,
+  RAW_MEAT: 206,
+  COOKED_MEAT: 207,
+  WHEAT: 208,
+  SEEDS: 209,
+  TOOLS_BASE: 210, // 210 + tier*4 + class; tiers: wood, stone, iron, gold, diamond
+  BREAD: 220,
+  STRING: 221,
+  FEATHER: 222,
+  FLINT: 223,
+  BEEF: 224,
+  COOKED_BEEF: 225,
+  CHICKEN_RAW: 226,
+  CHICKEN_COOKED: 227,
+  LEATHER: 228,
+  BUCKET: 229,
+  WATER_BUCKET: 230,
+  BOW: 231,
+  ARROW: 232,
+  BED_ITEM: 233,
+  FLINT_AND_STEEL: 234,
+  ARMOR_BASE: 240, // 240 + slot*5 + tier; slots: head/chest/legs/feet, tiers leather..diamond
+  HOE_BASE: 260,   // 260 + tier (wooden..diamond hoe)
 };
 
 export const BLOCKS = [];
@@ -145,6 +167,7 @@ function def(id, name, opt = {}) {
     solid: opt.solid ?? true,
     opaque: opt.opaque ?? true,
     cross: opt.cross ?? false,
+    plant: opt.plant ?? false,
     water: opt.water ?? false,
     glass: opt.glass ?? false,
     breakable: opt.breakable ?? true,
@@ -233,9 +256,9 @@ for (const [key, name, tile, hex] of WOOLS) {
 export const WOOL_HEX = Object.fromEntries(WOOLS.map(([key, , , hex]) => [B[key], hex]));
 
 // --- plants ---
-def(B.BLOOM_RED, 'Red bloom', { all: 'flower_red', solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants' });
-def(B.BLOOM_YELLOW, 'Yellow bloom', { all: 'flower_yellow', solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants' });
-def(B.WILD_GRASS, 'Wild grass', { all: 'tall_grass', solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants', drops: () => (Math.random() < 0.35 ? [{ id: I.SEEDS, count: 1 }] : []) });
+def(B.BLOOM_RED, 'Red bloom', { all: 'flower_red', plant: true, solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants' });
+def(B.BLOOM_YELLOW, 'Yellow bloom', { all: 'flower_yellow', plant: true, solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants' });
+def(B.WILD_GRASS, 'Wild grass', { all: 'tall_grass', plant: true, solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants', drops: () => (Math.random() < 0.35 ? [{ id: I.SEEDS, count: 1 }] : []) });
 def(B.DEAD_BUSH, 'Dead bush', { all: 'dead_bush', solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants', drops: () => (Math.random() < 0.35 ? [{ id: I.STICK, count: 1 }] : []) });
 
 // --- functional / special ---
@@ -248,12 +271,34 @@ def(B.LAVA, 'Lava', { all: 'lava', solid: false, opaque: false, water: true, liq
 def(B.CACTUS, 'Cactus', { side: 'cactus_side', top: 'cactus_top', bottom: 'cactus_top', sound: 'wool', hardness: 0.4, damage: 2, group: 'plants' });
 def(B.PUMPKIN, 'Pumpkin', { top: 'pumpkin_top', side: 'pumpkin_side', bottom: 'pumpkin_top', sound: 'wood', hardness: 1, tool: 'axe', group: 'natural' });
 
+// --- round 5: stone family + nether ---
+def(B.ANDESITE, 'Andesite', { all: 'andesite', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.GRANITE, 'Granite', { all: 'granite', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.DIORITE, 'Diorite', { all: 'diorite', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.POLISHED_ANDESITE, 'Polished andesite', { all: 'polished_andesite', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.POLISHED_GRANITE, 'Polished granite', { all: 'polished_granite', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.POLISHED_DIORITE, 'Polished diorite', { all: 'polished_diorite', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.SMOOTH_STONE, 'Smooth stone', { all: 'smooth_stone', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.ICE, 'Ice', { all: 'ice', opaque: false, glass: true, sound: 'glass', hardness: 0.5, drops: () => [] });
+def(B.PACKED_ICE, 'Packed ice', { all: 'packed_ice', sound: 'glass', hardness: 0.5, drops: () => [] });
+def(B.TERRACOTTA, 'Terracotta', { all: 'terracotta', hardness: 1.25, tool: 'pickaxe', needsTool: true });
+def(B.NETHERRACK, 'Netherrack', { all: 'netherrack', hardness: 0.4, tool: 'pickaxe', needsTool: true });
+def(B.SOUL_SAND, 'Soul sand', { all: 'soul_sand', sound: 'sand', hardness: 0.5, tool: 'shovel' });
+def(B.NETHER_BRICKS, 'Nether bricks', { all: 'nether_bricks', hardness: 2, tool: 'pickaxe', needsTool: true });
+def(B.MAGMA, 'Magma block', { all: 'magma', light: 6, lightColor: [1.0, 0.45, 0.15], hardness: 0.5, tool: 'pickaxe', needsTool: true, damage: 2 });
+def(B.QUARTZ_BLOCK, 'Quartz block', { all: 'quartz_block', hardness: 0.8, tool: 'pickaxe', needsTool: true });
+def(B.CRIMSON_STEM, 'Crimson stem', { side: 'crimson_stem_side', top: 'crimson_stem_top', bottom: 'crimson_stem_top', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.CRIMSON_PLANKS, 'Crimson planks', { all: 'crimson_planks', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.WARPED_STEM, 'Warped stem', { side: 'warped_stem_side', top: 'warped_stem_top', bottom: 'warped_stem_top', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.WARPED_PLANKS, 'Warped planks', { all: 'warped_planks', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.NETHER_PORTAL, 'Nether portal', { all: 'portal', solid: false, opaque: false, water: true, hardness: 1e9, breakable: false, light: 11, lightColor: [0.7, 0.25, 1.0] });
+
 // --- round 4: world feel + farming + beds ---
 for (const [tid, ox, oz] of [['N', 0, -0.32], ['E', 0.32, 0], ['S', 0, 0.32], ['W', -0.32, 0]]) {
   def(B['TORCH_WALL_' + tid], 'Torch', { all: 'torch', solid: false, opaque: false, cross: true, sound: 'wood', hardness: 0.05, light: 14, lightColor: [1.0, 0.62, 0.28], group: 'building', drops: () => [{ id: B.TORCH, count: 1 }] });
   BLOCKS[B['TORCH_WALL_' + tid]].wallOffset = [ox, oz];
 }
-def(B.SAPLING, 'Oak sapling', { all: 'sapling', solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants' });
+def(B.SAPLING, 'Oak sapling', { all: 'sapling', plant: true, solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants' });
 def(B.FARMLAND, 'Farmland', { top: 'farmland_top', side: 'farmland_side', bottom: 'dirt', sound: 'gravel', hardness: 0.6, tool: 'shovel', drops: () => [{ id: B.DIRT, count: 1 }] });
 for (let s = 0; s < 4; s++) {
   def(B['WHEAT_' + s], 'Wheat crops', { all: 'wheat_' + s, solid: false, opaque: false, cross: true, sound: 'leaves', hardness: 0.05, group: 'plants', drops: s === 3
@@ -272,6 +317,8 @@ for (const id of [B.COAL_ORE, B.IRON_ORE, B.GOLD_ORE, B.DIAMOND_ORE, B.COAL_BLOC
   BLOCKS[id].group = 'ores';
 }
 BLOCKS[B.SANDSTONE].group = 'natural';
+for (const id of [B.ANDESITE, B.GRANITE, B.DIORITE, B.POLISHED_ANDESITE, B.POLISHED_GRANITE, B.POLISHED_DIORITE, B.SMOOTH_STONE, B.TERRACOTTA, B.NETHERRACK, B.SOUL_SAND, B.NETHER_BRICKS, B.MAGMA, B.QUARTZ_BLOCK, B.CRIMSON_STEM, B.CRIMSON_PLANKS, B.WARPED_STEM, B.WARPED_PLANKS]) BLOCKS[id].group = 'building';
+for (const id of [B.ICE, B.PACKED_ICE]) BLOCKS[id].group = 'natural';
 for (const id of [B.BRICKS, B.STONE_BRICKS, B.MOSSY_STONE_BRICKS, B.GLASS, B.OBSIDIAN, B.BOOKSHELF]) BLOCKS[id].group = 'building';
 for (const id of [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.OAK_LEAVES, B.BIRCH_LEAVES, B.SPRUCE_LEAVES, B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS]) BLOCKS[id].group = 'wood';
 
@@ -295,6 +342,8 @@ export function resolveFaceTiles(tileIndex) {
     ];
   }
 }
+
+export const isBlockItem = (id) => !!BLOCKS[id];
 
 export const GROUP_LABELS = {
   natural: 'Natural',

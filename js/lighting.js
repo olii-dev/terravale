@@ -3,7 +3,7 @@
 // BFS flood propagation across chunk borders. Incremental relight on edits
 // uses the classic remove-then-repropagate algorithm per channel.
 
-import { CHUNK, HEIGHT } from './worldgen.js';
+import { CHUNK, HEIGHT, isNetherX } from './worldgen.js';
 import { B, isOpaque, BLOCKS } from './blocks.js';
 
 const ATT_WATER = 2;   // extra falloff through water/lava
@@ -65,6 +65,7 @@ export class Lighting {
     if (!m) {
       // no light data yet: estimate from the heightmap instead of returning
       // full sky (a bright lie that poisons spreads and border meshes)
+      if (isNetherX(x)) return 0; // the Nether has no sky light
       return y >= this.world.worldgen.heightAt(x, z) ? DIRECT_SKY : 0;
     }
     return m.sky[this.#local(x, y, z, x >> 4, z >> 4)];
@@ -122,10 +123,11 @@ export class Lighting {
     const addQ = [];    // sky spread queue: [x,y,z]
     const addQL = [];   // block light queue: [x,y,z]
 
-    // 1) sky columns + emitters
+    // 1) sky columns + emitters (the Nether has no sky light at all)
+    const nether = isNetherX(x0);
     for (let lz = 0; lz < CHUNK; lz++) {
       for (let lx = 0; lx < CHUNK; lx++) {
-        let level = DIRECT_SKY;
+        let level = nether ? 0 : DIRECT_SKY;
         for (let y = HEIGHT - 1; y >= 0; y--) {
           const id = data[(y * CHUNK + lz) * CHUNK + lx];
           if (level > 0) {
