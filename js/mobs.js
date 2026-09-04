@@ -15,6 +15,7 @@ export const MOB_TYPES = {
   chicken: { hp: 4, speed: 1.8, hostile: false, w: 0.22, h: 0.7, drops: () => [stack(I.CHICKEN_RAW, 1), stack(I.FEATHER, Math.random() < 0.7 ? 1 : 0)].filter(s => s.count > 0) },
   skeleton: { hp: 18, speed: 2.5, hostile: true, w: 0.3, h: 1.9, dmg: 0, ranged: true, drops: () => [stack(I.ARROW, Math.floor(Math.random() * 3)), stack(I.FLINT, Math.random() < 0.3 ? 1 : 0)].filter(s => s.count > 0) },
   piglin: { hp: 22, speed: 3.0, hostile: false, w: 0.3, h: 1.9, dmg: 4, drops: () => [stack(I.RAW_MEAT, 1), stack(203, Math.random() < 0.3 ? 1 : 0)].filter(s => s.count > 0) },
+  ghast: { hp: 10, speed: 1.6, hostile: true, w: 0.9, h: 0.9, dmg: 6, flying: true, drops: () => [stack(I.FLINT, 1)] },
 };
 export const MOB_NAMES = Object.keys(MOB_TYPES);
 
@@ -165,6 +166,16 @@ export class Mobs {
     m.shadow.position.set(m.pos.x, gy + 0.03, m.pos.z);
   }
 
+  fireball(m, target) {
+    const id = 'fb' + this.arrowId++;
+    const pos = m.pos.clone(); pos.y += 0.5;
+    const dir = target.pos.clone().add(new THREE.Vector3(0, 1.2, 0)).sub(pos).normalize();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), new THREE.MeshBasicMaterial({ color: 0xff8830 }));
+    mesh.position.copy(pos);
+    this.arrowGroup.add(mesh);
+    this.arrows.set(id, { id, pos, vel: dir.multiplyScalar(11), mesh, age: 0, kind: 'fireball', ownerId: m.id });
+  }
+
   fireArrow(m, target) {
     const id = this.arrowId++;
     const pos = m.pos.clone(); pos.y += 1.5;
@@ -189,7 +200,7 @@ export class Mobs {
   updateArrows(dt, players, damagePlayer) {
     for (const a of [...this.arrows.values()]) {
       a.age += dt;
-      a.vel.y -= 18 * dt;
+      if (a.kind !== 'fireball') a.vel.y -= 18 * dt;
       a.pos.addScaledVector(a.vel, dt);
       a.mesh.position.copy(a.pos);
       a.mesh.lookAt(a.pos.clone().add(a.vel));
@@ -214,8 +225,14 @@ export class Mobs {
         for (const p of players) {
           if (p.gm === 'creative') continue;
           const dx = p.pos.x - a.pos.x, dy = (p.pos.y + 0.9) - a.pos.y, dz = p.pos.z - a.pos.z;
-          if (dx * dx + dy * dy + dz * dz < 0.55) {
-            damagePlayer?.(p.id, 3, a.vel.x * 0.06, a.vel.z * 0.06);
+          const hitR = a.kind === 'fireball' ? 0.8 : 0.55;
+          if (dx * dx + dy * dy + dz * dz < hitR) {
+            if (a.kind === 'fireball') {
+              damagePlayer?.(p.id, 6, a.vel.x * 0.1, a.vel.z * 0.1, 'a ghast');
+              this.onExplosion?.(a.pos); // particle poof
+            } else {
+              damagePlayer?.(p.id, 3, a.vel.x * 0.06, a.vel.z * 0.06);
+            }
             dead = true;
             break;
           }
@@ -506,6 +523,10 @@ export class Mobs {
     }
 
     const playerInNether = players.some((p) => p.pos.x >= 1000000);
+    if (playerInNether && list.filter((m) => m.type === 'ghast').length < 3) {
+      const { x, z, h } = spot(16, 40);
+      this.spawn('ghast', x + 0.5, h + 18, z + 0.5);
+    }
     if (playerInNether && list.filter((m) => m.type === 'piglin').length < 6) {
       const { x, z, h } = spot(14, 36);
       const below = this.world.getBlock(x, h, z);
@@ -577,6 +598,27 @@ export class Mobs {
     } else if (mob.type === 'piglin') {
       rig = buildGloomer();
       for (const m of rig.mats) { m.color.set('#e0a0a0'); m.userData.base0 = m.color.clone(); }
+    } else if (mob.type === 'ghast') {
+      rig = {
+        group: new THREE.Group(), legs: [], arms: [], head: null, mats: [],
+      };
+      const body = boxPart(1.6, 1.6, 1.6, '#e4e0da');
+      rig.mats.push(body.material);
+      rig.group.add(body);
+      for (let i = 0; i < 4; i++) {
+        const t = boxPart(0.18, 0.8, 0.18, '#d4d0c8');
+        t.position.set(-0.45 + (i % 2) * 0.9, -1.1, -0.25 + Math.floor(i / 2) * 0.5);
+        rig.mats.push(t.material);
+        rig.group.add(t);
+      }
+      const eyeM = new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
+      rig.mats.push(eyeM);
+      for (const dx of [-0.3, 0.3]) {
+        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.04), eyeM);
+        eye.position.set(dx, 0.25, 0.82);
+        rig.group.add(eye);
+      }
+      rig.group.scale.setScalar(0.8);
     } else if (mob.type === 'skeleton') {
       rig = buildGloomer();
       // bone-white palette

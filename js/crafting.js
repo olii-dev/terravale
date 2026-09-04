@@ -71,6 +71,25 @@ R.push(shaped(stack(I.BUCKET), [[I.IRON_INGOT, 0, I.IRON_INGOT], [0, I.IRON_INGO
 // flint and steel
 R.push(shapeless(stack(I.FLINT_AND_STEEL), [I.IRON_INGOT, I.FLINT]));
 
+// doors: 6 planks -> 3
+R.push(shaped(stack(I.DOOR, 3), [
+  [B.OAK_PLANKS, B.OAK_PLANKS, 0],
+  [B.OAK_PLANKS, B.OAK_PLANKS, 0],
+  [B.OAK_PLANKS, B.OAK_PLANKS, 0],
+]));
+// oak fence: 4
+R.push(shaped(stack(B.OAK_FENCE, 4), [
+  [B.OAK_PLANKS, I.STICK, B.OAK_PLANKS],
+  [B.OAK_PLANKS, I.STICK, B.OAK_PLANKS],
+]));
+// wood/cobble slabs + stairs
+R.push(shaped(stack(B.BIRCH_SLAB_B, 6), [[B.BIRCH_PLANKS, B.BIRCH_PLANKS, B.BIRCH_PLANKS]]));
+R.push(shaped(stack(B.SPRUCE_SLAB_B, 6), [[B.SPRUCE_PLANKS, B.SPRUCE_PLANKS, B.SPRUCE_PLANKS]]));
+R.push(shaped(stack(B.COBBLE_SLAB_B, 6), [[B.COBBLE, B.COBBLE, B.COBBLE]]));
+R.push(shaped(stack(B.STAIRS_BIRCH_N, 4), [[B.BIRCH_PLANKS, B.BIRCH_PLANKS, B.BIRCH_PLANKS], [B.BIRCH_PLANKS, 0, B.BIRCH_PLANKS], [B.BIRCH_PLANKS, 0, B.BIRCH_PLANKS]]));
+R.push(shaped(stack(B.STAIRS_SPRUCE_N, 4), [[B.SPRUCE_PLANKS, B.SPRUCE_PLANKS, B.SPRUCE_PLANKS], [B.SPRUCE_PLANKS, 0, B.SPRUCE_PLANKS], [B.SPRUCE_PLANKS, 0, B.SPRUCE_PLANKS]]));
+R.push(shaped(stack(B.STAIRS_COBBLE_N, 4), [[B.COBBLE, B.COBBLE, B.COBBLE], [B.COBBLE, 0, B.COBBLE], [B.COBBLE, 0, B.COBBLE]]));
+
 // bed: wool over planks
 R.push(shaped(stack(I.BED_ITEM), [
   [B.WOOL_WHITE, B.WOOL_WHITE, B.WOOL_WHITE],

@@ -834,6 +834,10 @@ function doAction(btn) {
     trySleep(hit);
     return;
   }
+  if (targetBlock?.interact === 'door') {
+    toggleDoor(hit.x, hit.y, hit.z);
+    return;
+  }
   if (targetBlock?.interact) {
     const c = world.ensureContainer(hit.x, hit.y, hit.z, targetBlock.interact);
     expectUnlock = true;
@@ -987,6 +991,30 @@ function tryLightPortal(hit) {
 function facingFromDir(dirX, dirZ) {
   if (Math.abs(dirX) > Math.abs(dirZ)) return dirX > 0 ? 1 : 3;
   return dirZ > 0 ? 2 : 0;
+}
+
+// flip a door between open and closed (both halves swap state)
+function toggleDoor(x, y, z) {
+  let id = world.getBlock(x, y, z);
+  if (!BLOCKS[id]?.doorHalf) { id = world.getBlock(x, y - 1, z); y = y - 1; }
+  const bl = BLOCKS[id];
+  if (!bl?.doorHalf) return;
+  const newState = bl.doorOpen ? 'C' : 'O';
+  const lowFrom = bl.doorHalf === 'L' ? id : world.getBlock(x, y - 1, z);
+  const upFrom = bl.doorHalf === 'L' ? world.getBlock(x, y + 1, z) : id;
+  const swap = (idv) => {
+    const b = BLOCKS[idv];
+    return B['DOOR_' + b.doorHalf + '_' + b.doorFacing + '_' + newState];
+  };
+  const newLow = swap(lowFrom);
+  const newUp = swap(upFrom);
+  const lowY = BLOCKS[lowFrom]?.doorHalf === 'L' ? y : y - 1;
+  const upY = lowY + 1;
+  world.setBlock(x, lowY, z, newLow);
+  net?.sendEdit(x, lowY, z, newLow);
+  world.setBlock(x, upY, z, newUp);
+  net?.sendEdit(x, upY, z, newUp);
+  sfx.place('wood');
 }
 
 function trySleep(hit) {

@@ -119,6 +119,37 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
             emitBox(opaque, x, y, z, 0, 0, 0, 1, 0.5, 1, bl.faceTiles, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), tint2);
           } else if (bl.shape === 'slabtop') {
             emitBox(opaque, x, y, z, 0, 0.5, 0, 1, 1, 1, bl.faceTiles, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), tint2);
+          } else if (bl.shape === 'door') {
+            // thin door: closed sits flush on the facing edge; open swings in
+            const D = 0.19;
+            const boxes = {
+              N_C: [0, 0, 0, 1, 1, D], E_C: [1 - D, 0, 0, 1, 1, 1],
+              S_C: [0, 0, 1 - D, 1, 1, 1], W_C: [0, 0, 0, D, 1, 1],
+              N_O: [1 - D, 0, 0, 1, 1, 1], E_O: [0, 0, 1 - D, 1, 1, 1],
+              S_O: [0, 0, 0, D, 1, 1], W_O: [0, 0, 0, 1, 1, D],
+            };
+            const key = bl.doorFacing + (bl.doorOpen ? '_O' : '_C');
+            const bb = boxes[key];
+            const half = bl.doorHalf === 'U' ? [0, 0.5, 0, 1, 1, 1] : [0, 0, 0, 1, 0.5, 1];
+            const bbx = [bb[0], Math.max(bb[1], half[1]), bb[2], bb[3], Math.min(bb[4], half[4]), bb[5]];
+            emitBox(opaque, x, y, z, bbx[0], bbx[1], bbx[2], bbx[3], bbx[4], bbx[5], bl.faceTiles, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), null);
+            continue;
+          } else if (bl.shape === 'fence') {
+            // post + rails toward connected neighbors
+            emitBox(opaque, x, y, z, 0.375, 0, 0.375, 0.625, 1, 0.625, bl.faceTiles, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), null);
+            const rails = [
+              [1, 0, [0.5, 1], [0.375, 0.625]],
+              [-1, 0, [0, 0.5], [0.375, 0.625]],
+              [0, 1, [0.375, 0.625], [0.5, 1]],
+              [0, -1, [0.375, 0.625], [0, 0.5]],
+            ];
+            for (const [dx, dz, xr, zr] of rails) {
+              const nid = get(x + dx, y, z + dz);
+              if (nid === id || isOpaque(nid)) {
+                emitBox(opaque, x, y, z, xr[0], 0.25, zr[0], xr[1], 0.75, zr[1], bl.faceTiles, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), null);
+              }
+            }
+            continue;
           } else {
             // stairs: facing N/E/S/W — high half on that side
             const facing = (id - B.STAIRS_STONE_N + 4) % 8 < 4 ? id - B.STAIRS_STONE_N : id - B.STAIRS_OAK_N;

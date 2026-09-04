@@ -87,6 +87,26 @@ export function createWorldgen(seed) {
       return B.NETHERRACK;
     }
     if (y >= 118) return B.NETHERRACK;
+    // fortress platforms: one per 96-block cell, deterministic
+    const fx0 = Math.floor(x / 96), fz0 = Math.floor(z / 96);
+    const fseed = ((fx0 * 73856093) ^ (fz0 * 19349663)) >>> 0;
+    if ((fseed % 3) === 0) {
+      const lx = ((x % 96) + 96) % 96, lz = ((z % 96) + 96) % 96;
+      if (lx >= 24 && lx <= 71 && lz >= 24 && lz <= 71 && y >= 62 && y <= 64) {
+        // deck
+        if (y === 64 || ((lx % 12 === 0 || lz % 12 === 0) && y === 63)) return B.NETHER_BRICKS;
+        // guard rails
+        if (y === 65 && (lx === 24 || lx === 71 || lz === 24 || lz === 71) && (lx + lz) % 4 !== 0) return B.NETHER_BRICKS;
+        // pillars to the ground
+        if ((lx === 24 || lx === 71) && (lz === 24 || lz === 71)) return y > 34 ? B.NETHER_BRICKS : B.NETHERRACK;
+        // stair block access
+        if (lz === 25 && lx >= 34 && lx <= 37 && y === 63) return B.NETHER_BRICKS;
+        if (lz === 26 && lx >= 35 && lx <= 36 && y === 63) return B.NETHER_BRICKS;
+        if (lz === 27 && lx === 35 && y === 63) return B.NETHER_BRICKS;
+        return B.AIR;
+      }
+    }
+
     // open space with netherrack islands and pillars
     const solid = f > 0.62 || (y < 40 && f > 0.5);
     if (!solid) {

@@ -121,6 +121,17 @@ export const B = {
   STAIRS_OAK_S: 120,
   STAIRS_OAK_W: 121,
   ANCIENT_DEBRIS: 122,
+  DOOR_L_N_C: 123, DOOR_L_E_C: 124, DOOR_L_S_C: 125, DOOR_L_W_C: 126,
+  DOOR_L_N_O: 127, DOOR_L_E_O: 128, DOOR_L_S_O: 129, DOOR_L_W_O: 130,
+  DOOR_U_N_C: 131, DOOR_U_E_C: 132, DOOR_U_S_C: 133, DOOR_U_W_C: 134,
+  DOOR_U_N_O: 135, DOOR_U_E_O: 136, DOOR_U_S_O: 137, DOOR_U_W_O: 138,
+  OAK_FENCE: 139,
+  BIRCH_SLAB_B: 140, BIRCH_SLAB_T: 141,
+  SPRUCE_SLAB_B: 142, SPRUCE_SLAB_T: 143,
+  COBBLE_SLAB_B: 144, COBBLE_SLAB_T: 145,
+  STAIRS_BIRCH_N: 146, STAIRS_BIRCH_S: 147,
+  STAIRS_SPRUCE_N: 148, STAIRS_SPRUCE_S: 149,
+  STAIRS_COBBLE_N: 150, STAIRS_COBBLE_S: 151,
 };
 
 // slab/stair helpers
@@ -172,6 +183,7 @@ export const I = {
   ARROW: 232,
   BED_ITEM: 233,
   FLINT_AND_STEEL: 234,
+  DOOR: 235,
   NETHERITE_SCRAP: 238,
   NETHERITE_INGOT: 239,
   ARMOR_BASE: 240, // 240 + slot*5 + tier; slots: head/chest/legs/feet, tiers leather..diamond
@@ -328,6 +340,40 @@ def(B.STAIRS_OAK_E, 'Oak stairs', { all: 'oak_planks', shape: 'stairs', sound: '
 def(B.STAIRS_OAK_S, 'Oak stairs', { all: 'oak_planks', shape: 'stairs', sound: 'wood', hardness: 2, tool: 'axe' });
 def(B.STAIRS_OAK_W, 'Oak stairs', { all: 'oak_planks', shape: 'stairs', sound: 'wood', hardness: 2, tool: 'axe' });
 def(B.ANCIENT_DEBRIS, 'Ancient debris', { all: 'ancient_debris', hardness: 8, tool: 'pickaxe', needsTool: true, tier: 3 });
+
+// --- doors: facing (N/E/S/W) x state (closed/open), lower + upper halves ---
+const DOOR_FACING = [['N', 0, -0.5], ['E', 0.32, 0], ['S', 0, 0.5], ['W', -0.32, 0]];
+for (const [F, ox, oz] of DOOR_FACING) {
+  for (const [st, half] of [['C', 'L'], ['O', 'L'], ['C', 'U'], ['O', 'U']]) {
+    const id = B['DOOR_' + half + '_' + F + '_' + st];
+    def(id, 'Door', {
+      all: st === 'C' ? 'door_lower' : 'door_upper',
+      solid: true, opaque: false, shape: 'door',
+      sound: 'wood', hardness: 1.2, tool: 'axe',
+      interact: st === 'C' ? 'door' : 'door',
+      drops: () => [{ id: I.DOOR, count: 1 }],
+    });
+    BLOCKS[id].doorFacing = F;
+    BLOCKS[id].doorOpen = st === 'O';
+    BLOCKS[id].doorHalf = half;
+    BLOCKS[id].doorOffset = [ox, oz];
+  }
+}
+def(B.OAK_FENCE, 'Oak fence', { all: 'oak_planks', shape: 'fence', sound: 'wood', hardness: 2, tool: 'axe' });
+
+// birch/spruce/cobble slabs + stairs (N/S facings)
+def(B.BIRCH_SLAB_B, 'Birch slab', { all: 'birch_planks', shape: 'slab', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.BIRCH_SLAB_T, 'Birch slab', { all: 'birch_planks', shape: 'slabtop', sound: 'wood', hardness: 2, tool: 'axe', drops: () => [{ id: B.BIRCH_SLAB_B, count: 1 }] });
+def(B.SPRUCE_SLAB_B, 'Spruce slab', { all: 'spruce_planks', shape: 'slab', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.SPRUCE_SLAB_T, 'Spruce slab', { all: 'spruce_planks', shape: 'slabtop', sound: 'wood', hardness: 2, tool: 'axe', drops: () => [{ id: B.SPRUCE_SLAB_B, count: 1 }] });
+def(B.COBBLE_SLAB_B, 'Cobblestone slab', { all: 'cobble', shape: 'slab', hardness: 2, tool: 'pickaxe', needsTool: true });
+def(B.COBBLE_SLAB_T, 'Cobblestone slab', { all: 'cobble', shape: 'slabtop', hardness: 2, tool: 'pickaxe', needsTool: true, drops: () => [{ id: B.COBBLE_SLAB_B, count: 1 }] });
+def(B.STAIRS_BIRCH_N, 'Birch stairs', { all: 'birch_planks', shape: 'stairs', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.STAIRS_BIRCH_S, 'Birch stairs', { all: 'birch_planks', shape: 'stairs', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.STAIRS_SPRUCE_N, 'Spruce stairs', { all: 'spruce_planks', shape: 'stairs', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.STAIRS_SPRUCE_S, 'Spruce stairs', { all: 'spruce_planks', shape: 'stairs', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.STAIRS_COBBLE_N, 'Cobblestone stairs', { all: 'cobble', shape: 'stairs', hardness: 2, tool: 'pickaxe', needsTool: true });
+def(B.STAIRS_COBBLE_S, 'Cobblestone stairs', { all: 'cobble', shape: 'stairs', hardness: 2, tool: 'pickaxe', needsTool: true });
 
 // partial-block collision heights (bottom slabs are half height)
 export function blockHeight(id) {

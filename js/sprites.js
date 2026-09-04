@@ -257,6 +257,15 @@ const ITEM_PAINTERS = {
     px(ctx, 6, 9, '#4e9a30'); px(ctx, 10, 10, '#4e9a30'); px(ctx, 7, 11, '#3d7a24');
     px(ctx, 4, 11, '#4e9a30'); px(ctx, 12, 11, '#4e9a30');
   },
+  [I.DOOR](ctx) { // door icon
+    ctx.fillStyle = '#a07847';
+    ctx.fillRect(4 * PIX, 2 * PIX, 8 * PIX, 12 * PIX);
+    ctx.fillStyle = '#8a6330';
+    ctx.fillRect(4 * PIX, 2 * PIX, PIX, 12 * PIX);
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(6 * PIX, 4 * PIX, 4 * PIX, 3 * PIX);
+    px(ctx, 11, 8, '#3a3a3a'); px(ctx, 12, 8, '#3a3a3a');
+  },
   [I.FLINT_AND_STEEL](ctx) { // flint & steel
     ctx.fillStyle = '#54545c';
     ctx.fillRect(4 * PIX, 3 * PIX, 6 * PIX, 5 * PIX); // flint
