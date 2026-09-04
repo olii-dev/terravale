@@ -19,15 +19,16 @@ export class Hud {
     this._lastHotbarKey = '';
   }
 
-  updateStats(stats, gamemode) {
+  updateStats(stats, gamemode, armorPoints = 0) {
     if (gamemode === 'creative') {
       this.heartsEl.innerHTML = '';
       this.hungerEl.innerHTML = '';
       this.airEl.innerHTML = '';
+      this._armorEl && (this._armorEl.innerHTML = '');
       this._lastStatsKey = '';
       return;
     }
-    const key = `${stats.hp}|${stats.hunger}|${stats.air}|${stats.dead}`;
+    const key = `${stats.hp}|${stats.hunger}|${stats.air}|${stats.dead}|${armorPoints}`;
     if (key === this._lastStatsKey) return;
     this._lastStatsKey = key;
 
@@ -53,10 +54,29 @@ export class Hud {
       }
     }
     this.airEl.innerHTML = air;
+
+    // armor bar above hearts
+    let armorRow = document.getElementById('armor-bar');
+    if (!armorRow) {
+      armorRow = document.createElement('div');
+      armorRow.id = 'armor-bar';
+      armorRow.style.cssText = 'position:absolute; bottom:26px; left:0; display:flex; gap:1px;';
+      this.heartsEl.parentElement.appendChild(armorRow);
+    }
+    this._armorEl = armorRow;
+    if (armorPoints > 0) {
+      let icons = '';
+      for (let i = 0; i < Math.min(10, Math.ceil(armorPoints / 2)); i++) {
+        icons += `<img src="${hudURL('armor')}" draggable="false">`;
+      }
+      armorRow.innerHTML = icons;
+    } else {
+      armorRow.innerHTML = '';
+    }
   }
 
   updateHotbar(inv, selected) {
-    const key = inv.serialize().map((s) => (s ? `${s.id}:${s.count}:${s.dur ?? 0}` : '-')).join(',') + '|' + selected;
+    const key = inv.slots.map((s) => (s ? `${s.id}:${s.count}:${s.dur ?? 0}` : '-')).join(',') + '|' + selected;
     if (key === this._lastHotbarKey) return;
     this._lastHotbarKey = key;
 

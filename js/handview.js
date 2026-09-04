@@ -67,6 +67,21 @@ export class HandView {
     this.swingT = 0;
   }
 
+  // tint hand/held by local light: block light + sky light × day
+  setLight(blockL, skyL, dayF) {
+    const level = Math.max(blockL, skyL * (0.25 + 0.75 * dayF));
+    const c = Math.max(0.12, Math.min(1, level));
+    if (Math.abs((this._light ?? -1) - c) < 0.02) return;
+    this._light = c;
+    this.group.traverse((o) => {
+      if (o.isMesh && o.material) {
+        if (o.material.userData.baseColor === undefined) o.material.userData.baseColor = o.material.color.clone();
+        o.material.color.copy(o.material.userData.baseColor).multiplyScalar(c);
+        if (o.material.map) o.material.color.setScalar(c);
+      }
+    });
+  }
+
   update(dt, horizontalSpeed, onGround) {
     if (onGround && horizontalSpeed > 0.5) {
       this.bobPhase += dt * horizontalSpeed * 1.6;

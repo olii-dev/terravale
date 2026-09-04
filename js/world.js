@@ -77,6 +77,7 @@ export class World {
       if (id !== B.AIR && y + 2 > entry.maxY) entry.maxY = y + 2;
     }
     this.onBlockChanged?.(x, y, z, id, oldId);
+    this.onBlockChanged2?.(x, y, z, id);
 
     const affected = [this.key(cx, cz)];
     const lx = x - cx * CHUNK, lz = z - cz * CHUNK;

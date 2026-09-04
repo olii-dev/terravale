@@ -177,6 +177,11 @@ export class Sfx {
     setTimeout(() => this.noiseBurst(0.15, 1200, 0.3), 60);
   }
 
+  bow() {
+    this.tone(320, 'sine', 0.08, 0.4, 240);
+    this.noiseBurst(0.05, 2400, 0.15);
+  }
+
   levelTool() {
     this.tone(880, 'sine', 0.1, 0.3);
   }

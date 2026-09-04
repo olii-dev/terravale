@@ -37,6 +37,7 @@ export class Stats {
 
   damage(amount, cause) {
     if (this.dead || this.gamemode() === 'creative') return false;
+    amount = amount * (1 - 0.04 * (this.armorPoints || 0));
     this.hp = Math.max(0, this.hp - amount);
     this.hurtFlash = 0.4;
     this.onDamage?.(amount, cause);

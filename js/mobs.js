@@ -9,8 +9,11 @@ import { moveEntity } from './physics.js';
 
 export const MOB_TYPES = {
   trotter: { hp: 10, speed: 1.7, hostile: false, w: 0.42, h: 0.95, drops: () => [stack(I.RAW_MEAT, 1 + Math.floor(Math.random() * 2))] },
-  woolly: { hp: 8, speed: 1.6, hostile: false, w: 0.45, h: 1.1, drops: () => [stack(B.WOOL_WHITE, 1), stack(I.RAW_MEAT, 1)] },
+  woolly: { hp: 8, speed: 1.6, hostile: false, w: 0.45, h: 1.1, drops: () => [stack(B.WOOL_WHITE, 1), stack(I.RAW_MEAT, 1), stack(I.STRING, 1)] },
   gloomer: { hp: 20, speed: 2.9, hostile: true, w: 0.3, h: 1.9, dmg: 3, drops: () => (Math.random() < 0.4 ? [stack(I.RAW_MEAT, 1)] : []) },
+  cow: { hp: 10, speed: 1.5, hostile: false, w: 0.45, h: 1.25, drops: () => [stack(I.BEEF, 1 + Math.floor(Math.random() * 2)), stack(I.LEATHER, Math.random() < 0.6 ? 1 : 0).valueOf ? stack(I.LEATHER, 1) : null].filter(Boolean) },
+  chicken: { hp: 4, speed: 1.8, hostile: false, w: 0.22, h: 0.7, drops: () => [stack(I.CHICKEN_RAW, 1), stack(I.FEATHER, Math.random() < 0.7 ? 1 : 0)].filter(s => s.count > 0) },
+  skeleton: { hp: 18, speed: 2.5, hostile: true, w: 0.3, h: 1.9, dmg: 0, ranged: true, drops: () => [stack(I.ARROW, Math.floor(Math.random() * 3)), stack(I.FLINT, Math.random() < 0.3 ? 1 : 0)].filter(s => s.count > 0) },
 };
 export const MOB_NAMES = Object.keys(MOB_TYPES);
 
@@ -134,6 +137,126 @@ export class Mobs {
     this.stateTimer = 0;
     this.difficulty = 'normal';
     this.brightness = 1;
+    this.arrows = new Map(); // id -> {id, pos, vel, mesh, age, ownerId}
+    this.arrowId = 1;
+    this.arrowGroup = new THREE.Group();
+    scene.add(this.arrowGroup);
+    // shared blob shadow
+    this.shadowGeo = new THREE.CircleGeometry(0.45, 10);
+    this.shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false });
+  }
+
+  updateShadow(id) {
+    const m = this.mobs.get(id);
+    if (!m?.view) return;
+    if (!m.shadow) {
+      m.shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat);
+      m.shadow.rotation.x = -Math.PI / 2;
+      this.scene.add(m.shadow);
+    }
+    // find ground under the mob
+    let gy = -1;
+    for (let yy = Math.floor(m.pos.y); yy >= Math.floor(m.pos.y) - 6; yy--) {
+      if (this.world.getBlock(Math.floor(m.pos.x), yy, Math.floor(m.pos.z)) !== B.AIR) { gy = yy + 1; break; }
+    }
+    if (gy < 0) { m.shadow.visible = false; return; }
+    m.shadow.visible = true;
+    m.shadow.position.set(m.pos.x, gy + 0.03, m.pos.z);
+  }
+
+  fireArrow(m, target) {
+    const id = this.arrowId++;
+    const pos = m.pos.clone(); pos.y += 1.5;
+    const dir = target.pos.clone().add(new THREE.Vector3(0, 1.4, 0)).sub(pos).normalize();
+    const vel = dir.multiplyScalar(16);
+    vel.y += bestDist(Math.hypot(target.pos.x - m.pos.x, target.pos.z - m.pos.z));
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.5), new THREE.MeshBasicMaterial({ color: 0xd8cfa8 }));
+    mesh.position.copy(pos);
+    this.arrowGroup.add(mesh);
+    this.arrows.set(id, { id, pos, vel, mesh, age: 0, ownerId: m.id });
+    this.onArrowFired?.();
+  }
+
+  spawnPlayerArrow(eye, vel, dmg = 3, ownerId = 0) {
+    const id = this.arrowId++;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.5), new THREE.MeshBasicMaterial({ color: 0xe8d8a8 }));
+    mesh.position.copy(eye);
+    this.arrowGroup.add(mesh);
+    this.arrows.set(id, { id, pos: eye.clone(), vel: vel.clone(), mesh, age: 0, kind: 'player', dmg, ownerId });
+  }
+
+  updateArrows(dt, players, damagePlayer) {
+    for (const a of [...this.arrows.values()]) {
+      a.age += dt;
+      a.vel.y -= 18 * dt;
+      a.pos.addScaledVector(a.vel, dt);
+      a.mesh.position.copy(a.pos);
+      a.mesh.lookAt(a.pos.clone().add(a.vel));
+      const bid = this.world.getBlock(Math.floor(a.pos.x), Math.floor(a.pos.y), Math.floor(a.pos.z));
+      let dead = a.age > 6 || bid !== B.AIR;
+      // player arrows hit mobs (host authority)
+      if (!dead && this.isHost && a.kind === 'player') {
+        for (const m of this.mobs.values()) {
+          const t = MOB_TYPES[m.type];
+          const dx = m.pos.x - a.pos.x, dy = (m.pos.y + t.h / 2) - a.pos.y, dz = m.pos.z - a.pos.z;
+          if (dx * dx + dy * dy + dz * dz < (t.w + 0.25) ** 2) {
+            const res = this.hit(m.id, a.dmg ?? 3, a.vel.x * 0.08, a.vel.z * 0.08, a.ownerId);
+            if (res?.died) {
+              this.onMobDeath?.(m, res.drops);
+            }
+            dead = true;
+            break;
+          }
+        }
+      }
+      if (!dead && this.isHost) {
+        for (const p of players) {
+          if (p.gm === 'creative') continue;
+          const dx = p.pos.x - a.pos.x, dy = (p.pos.y + 0.9) - a.pos.y, dz = p.pos.z - a.pos.z;
+          if (dx * dx + dy * dy + dz * dz < 0.55) {
+            damagePlayer?.(p.id, 3, a.vel.x * 0.06, a.vel.z * 0.06);
+            dead = true;
+            break;
+          }
+        }
+      }
+      if (dead) {
+        this.arrowGroup.remove(a.mesh);
+        this.arrows.delete(a.id);
+      }
+    }
+  }
+
+  arrowStates() {
+    const out = [];
+    for (const a of this.arrows.values()) {
+      out.push([a.id, +a.pos.x.toFixed(2), +a.pos.y.toFixed(2), +a.pos.z.toFixed(2), +a.vel.x.toFixed(2), +a.vel.y.toFixed(2), +a.vel.z.toFixed(2)]);
+    }
+    return out;
+  }
+
+  applyArrowStates(list) {
+    const seen = new Set();
+    for (const [id, x, y, z, vx, vy, vz] of list || []) {
+      seen.add(id);
+      let a = this.arrows.get(id);
+      if (!a) {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.5), new THREE.MeshBasicMaterial({ color: 0xd8cfa8 }));
+        this.arrowGroup.add(mesh);
+        a = { id, pos: new THREE.Vector3(x, y, z), vel: new THREE.Vector3(vx, vy, vz), mesh, age: 0 };
+        this.arrows.set(id, a);
+      }
+      a.pos.set(x, y, z);
+      a.vel.set(vx, vy, vz);
+    }
+    for (const id of [...this.arrows.keys()]) if (!seen.has(id)) this.removeArrow(id);
+  }
+
+  removeArrow(id) {
+    const a = this.arrows.get(id);
+    if (!a) return;
+    this.arrowGroup.remove(a.mesh);
+    this.arrows.delete(id);
   }
 
   // ---------- host ----------
@@ -165,6 +288,7 @@ export class Mobs {
   remove(id) {
     const m = this.mobs.get(id);
     if (!m) return;
+    if (m.shadow) { this.scene.remove(m.shadow); }
     if (m.view) {
       this.group.remove(m.view.rig.group);
       m.view.rig.group.traverse((o) => {
@@ -177,6 +301,31 @@ export class Mobs {
 
   clear() {
     for (const id of [...this.mobs.keys()]) this.remove(id);
+  }
+
+  // returns {fed:true, ready:bool} if a passive mob ate the wheat
+  feedNearest(pos) {
+    let best = null, bestD = 2.6;
+    for (const m of this.mobs.values()) {
+      if (MOB_TYPES[m.type].hostile) continue;
+      const d = m.pos.distanceTo(pos);
+      if (d < bestD) { bestD = d; best = m; }
+    }
+    if (!best) return null;
+    best.loveT = 8;
+    this.onHearts?.(best.pos);
+    // look for a partner also in love
+    for (const other of this.mobs.values()) {
+      if (other === best || MOB_TYPES[other.type].hostile || other.type !== best.type) continue;
+      if ((other.loveT ?? 0) > 0) {
+        best.loveT = 0; other.loveT = 0;
+        const babyId = this.spawn(best.type, best.pos.x, best.pos.y, best.pos.z);
+        const baby = this.mobs.get(babyId);
+        if (baby) { baby.babyT = 90; if (baby.view) baby.view.rig.group.scale.setScalar(0.55); }
+        return { fed: true, bred: true };
+      }
+    }
+    return { fed: true, bred: false };
   }
 
   hit(id, dmg, kx, kz, attackerId) {
@@ -204,6 +353,7 @@ export class Mobs {
   update(dt, players, dayFactor) {
     if (!this.isHost) {
       this.updateViews(dt);
+      this.updateArrows(dt, [], null);
       return;
     }
     const tList = [...this.mobs.values()];
@@ -214,6 +364,12 @@ export class Mobs {
       m.attackCd = Math.max(0, m.attackCd - dt);
       m.wanderT -= dt;
       m.fleeT = Math.max(0, m.fleeT - dt);
+      if (m.loveT > 0) m.loveT -= dt;
+      if (m.babyT > 0) {
+        m.babyT -= dt;
+        if (m.view) m.view.rig.group.scale.setScalar(0.55 + 0.45 * Math.max(0, Math.min(1, 1 - m.babyT / 90)));
+        if (m.babyT <= 0 && m.view) m.view.rig.group.scale.setScalar(1);
+      }
 
       // nearest player
       let target = null, bestD = Infinity;
@@ -227,7 +383,20 @@ export class Mobs {
 
       let wishX = 0, wishZ = 0, speed = 0;
 
-      if (t.hostile && target && bestD < 24) {
+      if (t.hostile && t.ranged && target && bestD < 22) {
+        // skeleton: keep mid distance and shoot
+        const dx = target.pos.x - m.pos.x, dz = target.pos.z - m.pos.z;
+        const l = Math.hypot(dx, dz) || 1;
+        if (bestD < 5) { wishX = -dx / l; wishZ = -dz / l; }
+        else if (bestD > 10) { wishX = dx / l; wishZ = dz / l; }
+        speed = t.speed;
+        m.yaw = Math.atan2(dx, dz);
+        m.shootCd = (m.shootCd ?? 0) - dt;
+        if (m.shootCd <= 0 && bestD < 16) {
+          m.shootCd = 2.2;
+          this.fireArrow(m, target);
+        }
+      } else if (t.hostile && target && bestD < 24) {
         // chase
         const dx = target.pos.x - m.pos.x, dz = target.pos.z - m.pos.z;
         const l = Math.hypot(dx, dz) || 1;
@@ -323,8 +492,9 @@ export class Mobs {
 
     if (passive < 10 && dayFactor > 0.5) {
       const { x, z, h } = spot(16, 44);
-      if (h > 41 && this.world.getBlock(x, h, z) === B.GRASS) {
-        const type = Math.random() < 0.55 ? 'trotter' : 'woolly';
+      if (h > 41 && (this.world.getBlock(x, h, z) === B.GRASS || this.world.getBlock(x, h, z) === B.SNOWY_GRASS)) {
+        const roll = Math.random();
+        const type = roll < 0.3 ? 'trotter' : roll < 0.55 ? 'woolly' : roll < 0.8 ? 'cow' : 'chicken';
         const n = 1 + Math.floor(Math.random() * 2);
         for (let i = 0; i < n; i++) {
           this.spawn(type, x + 0.5 + (Math.random() - 0.5) * 2, h + 1.5, z + 0.5 + (Math.random() - 0.5) * 2);
@@ -390,7 +560,21 @@ export class Mobs {
     let rig;
     if (mob.type === 'trotter') rig = buildQuadruped('#e8a0a0', '#d98b8b', '#c47b7b', false);
     else if (mob.type === 'woolly') rig = buildQuadruped('#e9ecec', '#b9c2cf', '#c9b887', true);
-    else rig = buildGloomer();
+    else if (mob.type === 'cow') rig = buildQuadruped('#5c4033', '#8a6a52', '#4a352b', false);
+    else if (mob.type === 'chicken') {
+      rig = buildQuadruped('#f0f0f0', '#f0f0f0', '#e0b24a', false);
+      rig.group.scale.setScalar(0.55);
+    } else if (mob.type === 'skeleton') {
+      rig = buildGloomer();
+      // bone-white palette
+      for (const m of rig.mats) { m.userData.base0 = m.userData.base0 ?? m.color.clone(); m.color.set('#d8d8d0'); m.userData.base0 = m.color.clone(); }
+      // bow in hand
+      const bowMat = new THREE.MeshBasicMaterial({ color: '#8a6a3f' });
+      const bow = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.06), bowMat);
+      bow.position.set(0.42, 1.05, 0.25);
+      rig.mats.push(bowMat);
+      rig.group.add(bow);
+    } else rig = buildGloomer();
     this.group.add(rig.group);
     return { rig, hurtT: 0 };
   }
@@ -412,6 +596,7 @@ export class Mobs {
       if (!v) continue;
       v.rig.group.position.copy(m.pos);
       v.rig.group.rotation.y = m.yaw;
+      this.updateShadow(m.id);
 
       const swing = Math.sin(m.phase * 4) * Math.min(0.7, m.speed * 0.35);
       if (v.rig.legs) {

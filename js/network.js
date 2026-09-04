@@ -197,7 +197,7 @@ export class Net {
   }
 
   hostTime(time) { this.broadcast({ t: 'time', time }); }
-  hostMobs(states) { this.broadcast({ t: 'mobs', s: states }); }
+  hostMobs(states, arrows) { this.broadcast({ t: 'mobs', s: states, a: arrows || [] }); }
   hostDrops(states) { this.broadcast({ t: 'drops', s: states }); }
   hostDamage(id, dmg, kx, kz, cause) { this.sendTo(id, { t: 'damage', dmg, kx, kz, cause }); }
   hostGive(id, stack) { this.sendTo(id, { t: 'give', id: stack.id, count: stack.count }); }

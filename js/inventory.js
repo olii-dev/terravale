@@ -1,12 +1,39 @@
 // Player inventory: 36 slots (0-8 hotbar). Stacks are {id, count, dur?}.
 
 import { BLOCKS } from './blocks.js';
-import { ITEMS, maxStack, isTool } from './items.js';
+import { ITEMS, maxStack, isTool, armorOf } from './items.js';
 
 export class Inventory {
   constructor() {
     this.slots = new Array(36).fill(null);
+    this.armor = [null, null, null, null]; // head/chest/legs/feet
     this.selected = 0;
+  }
+
+  armorPoints() {
+    let pts = 0;
+    for (let i = 0; i < 4; i++) {
+      const s = this.armor[i];
+      if (s) pts += armorOf(s.id)?.points ?? 0;
+    }
+    return pts;
+  }
+
+  // try to equip/unequip via the UI: only matching slot accepted
+  toggleArmor(invIdx) {
+    const s = this.slots[invIdx];
+    if (!s) return false;
+    const a = armorOf(s.id);
+    if (!a) return false;
+    if (this.armor[a.slot]) {
+      const old = this.armor[a.slot];
+      this.armor[a.slot] = s;
+      this.slots[invIdx] = old;
+    } else {
+      this.armor[a.slot] = s;
+      this.slots[invIdx] = null;
+    }
+    return true;
   }
 
   held() { return this.slots[this.selected]; }
@@ -83,16 +110,21 @@ export class Inventory {
 
   clear() {
     this.slots.fill(null);
+    this.armor = [null, null, null, null];
   }
 
   serialize() {
-    return this.slots.map((s) => (s ? { ...s } : null));
+    return { slots: this.slots.map((s) => (s ? { ...s } : null)), armor: this.armor.map((s) => (s ? { ...s } : null)) };
   }
 
-  load(arr) {
+  load(data) {
     this.slots = new Array(36).fill(null);
-    (arr || []).forEach((s, i) => {
-      if (s && i < 36) this.slots[i] = { ...s };
-    });
+    this.armor = [null, null, null, null];
+    if (Array.isArray(data)) { // legacy: plain slots array
+      data.forEach((s, i) => { if (s && i < 36) this.slots[i] = { ...s }; });
+      return;
+    }
+    (data?.slots || []).forEach((s, i) => { if (s && i < 36) this.slots[i] = { ...s }; });
+    (data?.armor || []).forEach((s, i) => { if (s && i < 4) this.armor[i] = { ...s }; });
   }
 }

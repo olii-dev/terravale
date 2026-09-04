@@ -4,7 +4,18 @@
 
 import * as THREE from 'three';
 import { CHUNK, HEIGHT } from './worldgen.js';
-import { B, BLOCKS, isOpaque, isCross } from './blocks.js';
+import { B, BLOCKS, isOpaque, isCross, isWater, waterLevel } from './blocks.js';
+
+// per-biome grass/foliage tint (the signature look)
+const BIOME_TINTS = [
+  [0.57, 0.74, 0.35], // plains  #91bd59
+  [0.47, 0.75, 0.35], // forest  #79c05a
+  [0.75, 0.72, 0.33], // desert  #bfb755
+  [0.50, 0.71, 0.59], // snowy   #80b497
+  [0.53, 0.72, 0.51], // taiga   #86b783
+  [0.75, 0.72, 0.33], // savanna #bfb755
+];
+const TINTED_BLOCKS = new Set([B.GRASS, B.OAK_LEAVES, B.BIRCH_LEAVES, B.WILD_GRASS]);
 import { uvRect } from './textures.js';
 
 // face order matches blocks.faceTiles: +X, -X, +Y, -Y, +Z, -Z
@@ -55,6 +66,12 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
   const data = entry.data;
   const maxY = Math.min(HEIGHT, entry.maxY + 1);
   const x0 = cx * CHUNK, z0 = cz * CHUNK;
+  const biomes = new Int8Array(CHUNK * CHUNK);
+  for (let z = 0; z < CHUNK; z++) {
+    for (let x = 0; x < CHUNK; x++) {
+      biomes[z * CHUNK + x] = world.worldgen.biomeAt(x0 + x, z0 + z);
+    }
+  }
   const opaque = makeBucket();
   const cutout = makeBucket();
   const flora = makeBucket();
@@ -82,15 +99,18 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
         const id = data[(y * CHUNK + z) * CHUNK + x];
         if (id === B.AIR) continue;
         const bl = BLOCKS[id];
+        const tint = TINTED_BLOCKS.has(id) ? BIOME_TINTS[biomes[z * CHUNK + x]] : null;
 
         if (bl.cross) {
-          pushCross(flora, x, y, z, bl.faceTiles[0], x0, z0, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch));
+          pushCross(flora, x, y, z, bl.faceTiles[0], x0, z0, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), bl.wallOffset);
           continue;
         }
 
         const isWaterBlock = bl.water;
-        const topOpen = isWaterBlock && get(x, y + 1, z) !== id;
-        const topY = topOpen ? y + 0.875 : y + 1;
+        const wLevel = isWaterBlock ? waterLevel(id) : -1;
+        const topOpen = isWaterBlock && !isWater(get(x, y + 1, z));
+        // source sits at 7/8; flowing levels get shallower with distance
+        const topY = topOpen && isWaterBlock ? y + Math.max(0.125, 1 - (wLevel + 1) / 9) : y + 1;
 
         for (let f = 0; f < 6; f++) {
           const face = FACES[f];
@@ -123,12 +143,13 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
             if (bucket === opaque) {
               const sample = faceLightAO(get, skyAt, blockAtL, face, v, x, y, z);
               aos.push(sample.ao);
-              colors.push(face.shade * AO_LUT[sample.ao]);
+              const tc = tint && f === 2 ? tint : null; // tint only top faces of grass
+              colors.push(face.shade * AO_LUT[sample.ao] * (tc ? tc[0] : 1), face.shade * AO_LUT[sample.ao] * (tc ? tc[1] : 1), face.shade * AO_LUT[sample.ao] * (tc ? tc[2] : 1));
               skys.push(sample.sky);
               blocksL.push(sample.block[0], sample.block[1], sample.block[2]);
             } else {
               aos.push(3);
-              colors.push(face.shade);
+              colors.push(face.shade * (tint ? tint[0] : 1), face.shade * (tint ? tint[1] : 1), face.shade * (tint ? tint[2] : 1));
               // flat light for water/glass/cutout
               const s = skyAt(nx, ny, nz) / 15;
               const b = blockAtL(nx, ny, nz, blkScratch);
@@ -186,12 +207,12 @@ function faceLightAO(get, skyAt, blockAtL, face, v, x, y, z) {
   return { ao, sky: skySum / n / 15, block: [br / n, bg / n, bb / n] };
 }
 
-function pushCross(bucket, x, y, z, tile, x0, z0, sky, blockL) {
+function pushCross(bucket, x, y, z, tile, x0, z0, sky, blockL, wallOff) {
   const bl = [blockL[0], blockL[1], blockL[2]];
   const rect = uvRect(tile);
   const off = ((x0 + x) * 31 + (z0 + z) * 17 + y * 7) % 7 / 7;
-  const ox = (off - 0.5) * 0.3;
-  const oz = (((x0 + x) * 13 + (z0 + z) * 41) % 5 - 2) * 0.06;
+  const ox = wallOff ? wallOff[0] : (off - 0.5) * 0.3;
+  const oz = wallOff ? wallOff[1] : (((x0 + x) * 13 + (z0 + z) * 41) % 5 - 2) * 0.06;
   const lo = 0.15, hi = 0.85;
 
   const quads = [

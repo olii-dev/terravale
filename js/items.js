@@ -3,7 +3,8 @@
 
 import { B, BLOCKS } from './blocks.js';
 
-export { I } from './blocks.js'; // item-id constants live with the block ids
+import { I } from './blocks.js';
+export { I };
 
 export const TOOL_CLASSES = ['pickaxe', 'axe', 'shovel', 'sword'];
 export const TIER_NAMES = ['Wooden', 'Stone', 'Iron', 'Golden', 'Diamond'];
@@ -20,6 +21,7 @@ function defItem(id, name, opt = {}) {
     food: opt.food ?? 0,          // hunger restored
     fuel: opt.fuel ?? 0,          // furnace burn seconds
     tool: opt.tool ?? null,       // {cls, tier}
+    armor: opt.armor ?? null,     // {slot, tier, points}
     maxDur: opt.maxDur ?? 0,
     damage: opt.damage ?? 1,      // melee damage
   };
@@ -33,6 +35,54 @@ defItem(104, 'Diamond', {});
 defItem(105, 'Apple', { food: 4 });
 defItem(106, 'Raw meat', { food: 3 });
 defItem(107, 'Cooked meat', { food: 8 });
+// round 4
+defItem(I.WHEAT, 'Wheat', {});
+defItem(I.SEEDS, 'Seeds', {});
+defItem(I.BREAD, 'Bread', { food: 5 });
+defItem(I.STRING, 'String', {});
+defItem(I.FEATHER, 'Feather', {});
+defItem(I.FLINT, 'Flint', {});
+defItem(I.BEEF, 'Raw beef', { food: 3 });
+defItem(I.COOKED_BEEF, 'Steak', { food: 8 });
+defItem(I.CHICKEN_RAW, 'Raw chicken', { food: 2 });
+defItem(I.CHICKEN_COOKED, 'Cooked chicken', { food: 6 });
+defItem(I.LEATHER, 'Leather', {});
+defItem(I.BUCKET, 'Bucket', {});
+defItem(I.WATER_BUCKET, 'Water bucket', {});
+defItem(I.BOW, 'Bow', { maxDur: 384, damage: 1 });
+defItem(I.ARROW, 'Arrow', {});
+defItem(I.BED_ITEM, 'Bed', {});
+
+// armor: 140 + slot*5 + tier (slots 0 head, 1 chest, 2 legs, 3 feet)
+export const ARMOR_SLOTS = ['head', 'chest', 'legs', 'feet'];
+export const ARMOR_POINTS = {
+  leather: [1, 3, 2, 1],
+  iron: [2, 6, 5, 2],
+  gold: [2, 5, 3, 1],
+  diamond: [3, 8, 6, 3],
+};
+const ARMOR_TIER_NAMES = ['Leather', 'Iron', 'Golden', 'Diamond'];
+const ARMOR_TIER_KEYS = ['leather', 'iron', 'gold', 'diamond'];
+const ARMOR_SLOT_NAMES = ['Cap', 'Tunic', 'Pants', 'Boots'];
+for (let slot = 0; slot < 4; slot++) {
+  for (let tier = 0; tier < 4; tier++) {
+    const id = I.ARMOR_BASE + slot * 5 + tier;
+    defItem(id, `${ARMOR_TIER_NAMES[tier]} ${ARMOR_SLOT_NAMES[slot]}`, {
+      armor: { slot, tier, points: ARMOR_POINTS[ARMOR_TIER_KEYS[tier]][slot] },
+      maxDur: [80, 180, 120, 500][tier],
+    });
+  }
+}
+export function armorId(slot, tier) { return I.ARMOR_BASE + slot * 5 + tier; }
+export function armorOf(id) { return ITEMS[id]?.armor ?? null; }
+
+// hoes: separate id range so existing tool ids stay stable
+const HOE_DMG = [2, 3, 4, 2, 5];
+defItem(I.HOE_BASE, 'Wooden hoe', { tool: { cls: 'hoe', tier: 0 }, maxDur: 60, damage: 2, fuel: 10 });
+for (let tier = 1; tier < 5; tier++) {
+  defItem(I.HOE_BASE + tier, `${TIER_NAMES[tier]} hoe`, { tool: { cls: 'hoe', tier }, maxDur: TIER_DURABILITY[tier], damage: HOE_DMG[tier] });
+}
+export function hoeId(tier) { return I.HOE_BASE + tier; }
 
 // tools: 110 + tier*4 + class index
 const SWORD_DMG = [4, 5, 6, 4, 7];

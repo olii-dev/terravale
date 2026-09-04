@@ -4,7 +4,7 @@
 // palette. Slot interactions use a cursor stack like the classic UI.
 
 import { BLOCKS, PALETTE_IDS, GROUP_LABELS, B } from './blocks.js';
-import { ITEMS, nameOf, maxStack, canMerge, isTool } from './items.js';
+import { ITEMS, nameOf, maxStack, canMerge, isTool, armorOf } from './items.js';
 import { itemIcon } from './sprites.js';
 import { matchGrid, consumeGrid } from './crafting.js';
 import { getSlot, setSlot, swapSlots, takeHalf, quickMove } from './containers.js';
@@ -423,8 +423,64 @@ export class UI {
 
   renderScreen() {
     this.renderContainerArea();
+    this.renderArmorRow();
     this.renderPlayerGrid();
     this.updateCursor();
+  }
+
+  renderArmorRow() {
+    let row = document.getElementById('armor-row');
+    if (!row) {
+      row = document.createElement('div');
+      row.id = 'armor-row';
+      row.style.cssText = 'display:flex; gap:4px; margin-bottom:8px;';
+      const label = document.createElement('div');
+      label.textContent = 'Armor';
+      label.style.cssText = "font-family:'Silkscreen',monospace; font-size:12px; color:var(--text-dark); margin-right:6px; align-self:center;";
+      row.appendChild(label);
+      this.el.screenPanel.insertBefore(row, this.el.containerArea);
+    }
+    row.innerHTML = '';
+    for (let i = 0; i < 4; i++) {
+      const slot = document.createElement('div');
+      slot.className = 'islot';
+      const s = this.playerInv?.armor[i] ?? null;
+      if (s) {
+        const img = document.createElement('img');
+        img.src = itemIcon(s.id, 64).toDataURL();
+        slot.appendChild(img);
+        slot.addEventListener('mouseenter', () => this.showTooltip(s));
+        slot.addEventListener('mouseleave', () => this.hideTooltip());
+      }
+      slot.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        this.armorClick(i);
+      });
+      row.appendChild(slot);
+    }
+  }
+
+  armorClick(i) {
+    if (!this.playerInv) return;
+    const cur = this.cursorStack;
+    const eq = this.playerInv.armor[i];
+    if (cur) {
+      const a = armorOf(cur.id);
+      if (!a || a.slot !== i) return; // wrong slot
+      if (eq) {
+        this.playerInv.armor[i] = { ...cur };
+        this.cursorStack = eq;
+      } else {
+        this.playerInv.armor[i] = { ...cur };
+        this.cursorStack = null;
+      }
+    } else if (eq) {
+      this.cursorStack = eq;
+      this.playerInv.armor[i] = null;
+    }
+    if (this.cursorStack && this.cursorStack.count <= 0) this.cursorStack = null;
+    this.renderScreen();
+    this.cb.onInventoryChange();
   }
 
   renderContainerArea() {

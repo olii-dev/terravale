@@ -3,7 +3,7 @@
 // saves and the P2P network.
 
 import * as THREE from 'three';
-import { B, BLOCKS, isReplaceable, isCross, dropsFor } from './blocks.js';
+import { B, BLOCKS, isReplaceable, isCross, dropsFor, waterLevel, waterBlockForLevel, isWater as isWaterId } from './blocks.js';
 import { buildAtlas, TILE_INDEX, getCrackTextures } from './textures.js';
 import { resolveFaceTiles } from './blocks.js';
 import { World, HEIGHT } from './world.js';
@@ -17,7 +17,8 @@ import { UI } from './ui.js';
 import { Chat } from './chat.js';
 import { Hud } from './hud.js';
 import { Avatars } from './avatars.js';
-import { Mobs, entityRaycast } from './mobs.js';
+import { Mobs, entityRaycast, MOB_TYPES } from './mobs.js';
+const MOBS_HOSTILE = (t) => !!MOB_TYPES[t]?.hostile;
 import { Drops } from './drops.js';
 import { HandView } from './handview.js';
 import { Inventory } from './inventory.js';
@@ -32,6 +33,9 @@ import { itemIcon } from './sprites.js';
 import { Particles } from './particles.js';
 import { Weather } from './weather.js';
 import { tileColors } from './textures.js';
+import { WaterSim } from './water.js';
+import { WorldTick } from './worldtick.js';
+import { hoeId, armorOf, I } from './items.js';
 
 // ---------- boot ----------
 
@@ -81,7 +85,7 @@ let state = 'menu'; // menu | connecting | playing
 let world = null, lighting = null, cm = null, player = null, sky = null;
 let avatars = null, mobs = null, drops = null, hand = null, net = null;
 let inventory = null, stats = null, ui = null, chat = null, hud = null;
-let particles = null, weather = null;
+let particles = null, weather = null, waterSim = null, worldtick = null;
 let myName = 'Wanderer', myColor = '#7ddb5a', myGamemode = 'survival';
 let expectUnlock = false;
 let holdBtn = null, nextActionAt = 0, attackCd = 0, placeCd = 0, hitSoundT = 0;
@@ -89,7 +93,8 @@ let lastPosSend = 0, lastSaveAt = 0, lastTimeSync = 0, lastEntitySync = 0, lastM
 let lastCstate = 0, furnaceUiTick = 0;
 let frames = 0, fpsTime = 0, fps = 0;
 let pickupReqT = new Map();
-let deathDropped = false, bobPhase = 0;
+let deathDropped = false, bobPhase = 0, bowCharging = 0, hurtTilt = 0;
+const worldtickLater = []; // crop ids to register once worldtick exists
 const keys = new Set();
 const actions = new Set();
 
@@ -236,6 +241,12 @@ function startHost(resumeCode, opts = {}) {
   world.gamemode = mode;
   world.difficulty = saved?.difficulty ?? 'normal';
   if (saved?.edits) world.loadEdits(saved.edits);
+  if (saved?.edits) {
+    for (const [k, id] of world.edits) {
+      const [x, y, z] = k.split(',').map(Number);
+      worldtickLater.push([x, y, z, id]);
+    }
+  }
   if (saved?.containers) world.loadContainers(saved.containers);
   myGamemode = mode;
 
@@ -292,13 +303,22 @@ function setupGame() {
   weather.isHost = mobs.isHost;
   weather.enabled = settings.get('weather');
   particles.setVisible(settings.get('particles'));
+  waterSim = new WaterSim(world);
+  waterSim.isHost = mobs.isHost;
+  for (const [x, y, z, id] of worldtickLater) worldtick.notifyBlock(x, y, z, id);
+  worldtickLater.length = 0;
+  waterSim.onEdit = (x, y, z, id) => { if (net?.mode === 'host') net.hostEdit(x, y, z, id); };
+  worldtick = new WorldTick(world);
+  worldtick.isHost = mobs.isHost;
+  worldtick.onEdit = (x, y, z, id) => { if (net?.mode === 'host') net.hostEdit(x, y, z, id); };
+  world.onBlockChanged2 = (x, y, z, id) => worldtick.notifyBlock(x, y, z, id);
   hand = new HandView(camera);
   inventory = new Inventory();
   ui.setPlayerInv(inventory);
   stats = new Stats(world);
   stats.player = player;
   stats.onDeath = onDeath;
-  stats.onDamage = () => { sfx.hurt(); flashHurt(); };
+  stats.onDamage = () => { sfx.hurt(); flashHurt(); hurtTilt = (Math.random() < 0.5 ? -1 : 1) * 0.1; };
   player.onLand = (fall) => stats.fallDamage(fall);
 
   cm.setRadius(settings.get('renderDist'));
@@ -314,7 +334,7 @@ function setupGame() {
     get player() { return player; }, get world() { return world; }, get ui() { return ui; },
     get net() { return net; }, get sky() { return sky; }, get inventory() { return inventory; },
     get stats() { return stats; }, get mobs() { return mobs; }, get drops() { return drops; },
-    get lighting() { return lighting; }, get cm() { return cm; }, get scene() { return scene; }, get particles() { return particles; }, get weather() { return weather; },
+    get lighting() { return lighting; }, get cm() { return cm; }, get scene() { return scene; }, get particles() { return particles; }, get weather() { return weather; }, get waterSim() { return waterSim; }, get worldtick() { return worldtick; },
   };
   window.__testAction = (btn) => doAction(btn);
   window.__testGive = (id, count) => { inventory.add({ id, count }); hud.updateHotbar(inventory, inventory.selected); };
@@ -325,6 +345,7 @@ function enterGame(saved) {
     player.pos.set(saved.pos[0], saved.pos[1], saved.pos[2]);
     if (typeof saved.yaw === 'number') player.yaw = saved.yaw;
   }
+  if (saved?.bedSpawn) player.bedSpawn = saved.bedSpawn;
   if (saved?.inv) inventory.load(saved.inv);
   if (saved?.stats) {
     stats.hp = saved.stats.hp ?? 20;
@@ -386,6 +407,7 @@ function teardownGame() {
   if (drops) { drops.clear(); drops = null; }
   if (particles) { particles = null; }
   if (weather) { sfx.stopRain(); weather = null; }
+  waterSim = null; worldtick = null;
   highlight.visible = false;
   crackMesh.visible = false;
   keys.clear();
@@ -460,6 +482,7 @@ function netHandlers() {
         // host spawns drops on behalf of remote breakers
         for (const st of dropsFor(prev)) drops.spawn(st, x + 0.5, y + 0.3, z + 0.5);
       }
+      if (net.mode === 'host') { waterSim?.scheduleAround(x, y, z); worldtick?.scheduleFallCheck(x, y, z); }
       if (net.mode === 'host' && b === B.AIR) world.removeContainer(x, y, z);
       if (player) {
         const d = Math.hypot(x - player.pos.x, y - player.pos.y, z - player.pos.z);
@@ -473,7 +496,7 @@ function netHandlers() {
     },
 
     onTime: (t) => sky?.setTime(t),
-    onMobs: (s) => mobs?.applyStates(s),
+    onMobs: (s, a) => { mobs?.applyStates(s); mobs?.applyArrowStates(a); },
     onDrops: (s) => drops?.applyStates(s),
 
     onDamage: (dmg, kx, kz, cause) => {
@@ -544,6 +567,22 @@ function netHandlers() {
 
     onMobHit: (connId, mobId, dmg, kx, kz) => {
       applyMobHit(mobId, dmg, kx, kz, connId);
+    },
+
+    onSleep: (connId, bedKey) => {
+      // validate: night and no hostiles near that player, then skip night
+      const p = net.players.get(connId);
+      if (!p?.pos) return;
+      if (sky.getDayFactor() > 0.5) return;
+      for (const m of mobs.mobs.values()) {
+        if (MOB_TYPES[m.type]?.hostile && m.pos.distanceTo(new THREE.Vector3(p.pos.x, p.pos.y, p.pos.z)) < 10) return;
+      }
+      sky.setTime(0.27);
+      net.hostTime(0.27);
+    },
+
+    onPlayerArrow: (connId, msg) => {
+      mobs.spawnPlayerArrow(new THREE.Vector3(msg.x, msg.y, msg.z), new THREE.Vector3(msg.vx, msg.vy, msg.vz), msg.dmg, connId);
     },
 
     onDrop: (connId, itemId, count, dur) => {
@@ -637,10 +676,10 @@ function setGamemodeLocal(mode) {
 
 // ---------- survival gameplay helpers ----------
 
-function onMobAttackPlayer(playerId, dmg, kx, kz) {
+function onMobAttackPlayer(playerId, dmg, kx, kz, cause = 'a gloomer') {
   if (playerId === 0 || playerId === net.myId) {
     if (!stats || stats.dead) return;
-    stats.damage(dmg, 'a gloomer');
+    stats.damage(dmg, cause);
     player.vel.x += kx * 7;
     player.vel.z += kz * 7;
     player.vel.y = Math.max(player.vel.y, 4.5);
@@ -688,7 +727,7 @@ function onDeath(cause) {
 function respawn() {
   stats.reset();
   deathDropped = false;
-  player.spawn();
+  player.spawn(player.bedSpawn ? { x: player.bedSpawn[0], y: player.bedSpawn[1], z: player.bedSpawn[2] } : null);
   ui.hideDeath();
   requestLock();
 }
@@ -703,6 +742,21 @@ function doAction(btn) {
 
   // attack first: mobs in reach before blocks
   if (btn === 0 && tryAttack(eye, dir)) return;
+
+  // feed wheat to passive mobs (breeding)
+  const held0 = inventory.held();
+  if (held0 && held0.id === I.WHEAT) {
+    const mobHit = entityRaycast(eye, dir, mobs.mobs, 3.4);
+    if (mobHit && !MOB_TYPES[mobHit.mob.type]?.hostile) {
+      const res = mobs.feedNearest(mobHit.mob.pos);
+      if (res?.fed) {
+        inventory.consumeHeldOne();
+        hud.updateHotbar(inventory, inventory.selected);
+        if (res.bred) particles?.burst(mobHit.mob.pos.x, mobHit.mob.pos.y + 1, mobHit.mob.pos.z, ['#ff6b9d', '#ff9ec4'], 14, 1.6);
+        return;
+      }
+    }
+  }
 
   const hit = player.raycast();
   if (!hit.hit) {
@@ -731,6 +785,10 @@ function doAction(btn) {
     }
   }
 
+  if (targetBlock?.interact === 'bed') {
+    trySleep(hit);
+    return;
+  }
   if (targetBlock?.interact) {
     const c = world.ensureContainer(hit.x, hit.y, hit.z, targetBlock.interact);
     expectUnlock = true;
@@ -738,6 +796,53 @@ function doAction(btn) {
     ui.openScreen(targetBlock.interact, c, hit.x + ',' + hit.y + ',' + hit.z);
     sfx.place('wood');
     return;
+  }
+
+  // bucket: scoop a water source
+  if (held && held.id === I.BUCKET && isWaterId(hit.id) && waterLevel(hit.id) === 0) {
+    world.setBlock(hit.x, hit.y, hit.z, B.AIR);
+    net?.sendEdit(hit.x, hit.y, hit.z, B.AIR);
+    inventory.slots[inventory.selected] = { id: I.WATER_BUCKET, count: 1 };
+    sfx.splash();
+    hud.updateHotbar(inventory, inventory.selected);
+    return;
+  }
+  // water bucket: place a source
+  if (held && held.id === I.WATER_BUCKET) {
+    let tx = hit.px, ty = hit.py, tz = hit.pz;
+    if (isCross(hit.id)) { tx = hit.x; ty = hit.y; tz = hit.z; }
+    if (!isReplaceable(world.getBlock(tx, ty, tz))) return;
+    world.setBlock(tx, ty, tz, B.WATER);
+    net?.sendEdit(tx, ty, tz, B.WATER);
+    inventory.slots[inventory.selected] = { id: I.BUCKET, count: 1 };
+    sfx.splash();
+    hud.updateHotbar(inventory, inventory.selected);
+    hand.setHeld(inventory.held());
+    return;
+  }
+  // hoe: till grass/dirt with air above
+  if (held && ITEMS[held.id]?.tool?.cls === 'hoe' && (hit.id === B.GRASS || hit.id === B.DIRT) && world.getBlock(hit.x, hit.y + 1, hit.z) === B.AIR) {
+    world.setBlock(hit.x, hit.y, hit.z, B.FARMLAND);
+    net?.sendEdit(hit.x, hit.y, hit.z, B.FARMLAND);
+    sfx.place('gravel');
+    hand.swing();
+    if (inventory.damageHeldTool()) sfx.toolBreak();
+    hud.updateHotbar(inventory, inventory.selected);
+    return;
+  }
+  // seeds: plant on farmland
+  if (held && held.id === I.SEEDS && hit.id === B.FARMLAND && world.getBlock(hit.x, hit.y + 1, hit.z) === B.AIR) {
+    world.setBlock(hit.x, hit.y + 1, hit.z, B.WHEAT_0);
+    net?.sendEdit(hit.x, hit.y + 1, hit.z, B.WHEAT_0);
+    inventory.consumeHeldOne();
+    sfx.place('leaves');
+    hud.updateHotbar(inventory, inventory.selected);
+    hand.setHeld(inventory.held());
+    return;
+  }
+  // bow: ignore here (charging handled on mousedown/up)
+  if (held && held.id === I.BOW) {
+    return; // bow handled by hold-to-charge
   }
 
   if (!held || !isBlockItem(held.id)) { hand.swing(); return; }
@@ -750,6 +855,7 @@ function doAction(btn) {
 
   world.setBlock(tx, ty, tz, held.id);
   net?.sendEdit(tx, ty, tz, held.id);
+  worldSimAfter(tx, ty, tz);
   sfx.place(BLOCKS[held.id].sound);
   hand.swing();
   particles?.burst(tx + 0.5, ty + 1.05, tz + 0.5, tileColors(held.id), 6, 1.2);
@@ -757,6 +863,38 @@ function doAction(btn) {
     inventory.consumeHeldOne();
     hud.updateHotbar(inventory, inventory.selected);
     hand.setHeld(inventory.held());
+  }
+}
+
+function trySleep(hit) {
+  const bedKey = hit.x + ',' + hit.y + ',' + hit.z;
+  const sleep = () => {
+    player.bedSpawn = [hit.x + 0.5, hit.y + 1.2, hit.z + 0.5];
+    sky.setTime(0.27);
+    if (net?.mode === 'host') net.hostTime(0.27);
+    document.getElementById('sleep-fade').classList.add('active');
+    setTimeout(() => document.getElementById('sleep-fade').classList.remove('active'), 1800);
+    chat.add({ text: 'You slept. Spawn point set.', system: true });
+  };
+  if (sky.getDayFactor() > 0.5) {
+    chat.add({ text: 'You can only sleep at night.', system: true });
+    return;
+  }
+  // monsters nearby?
+  let danger = false;
+  for (const m of mobs.mobs.values()) {
+    if (MOBS_HOSTILE(m.type) && m.pos.distanceTo(player.pos) < 10) { danger = true; break; }
+  }
+  if (danger) {
+    chat.add({ text: 'You may not rest now — there are monsters nearby.', system: true });
+    return;
+  }
+  if (net?.mode === 'client') {
+    net.clientSend({ t: 'sleep', k: bedKey });
+    // optimistic: host will broadcast time
+    player.bedSpawn = [hit.x + 0.5, hit.y + 1.2, hit.z + 0.5];
+  } else {
+    sleep();
   }
 }
 
@@ -784,6 +922,29 @@ function tryAttack(eye, dir) {
   return true;
 }
 
+// after any block edit: reschedule water + gravity checks (host only sims)
+  function worldSimAfter(x, y, z) {
+    waterSim?.scheduleAround(x, y, z);
+    worldtick?.scheduleFallCheck(x, y, z);
+  }
+
+function fireArrow(charge) {
+  if (!player || stats?.dead) return;
+  inventory.removeId(I.ARROW, 1);
+  hud.updateHotbar(inventory, inventory.selected);
+  const eye = player.eyePosition(new THREE.Vector3());
+  const dir = player.lookVector(new THREE.Vector3());
+  const speed = 12 + charge * 22;
+  const vel = dir.clone().multiplyScalar(speed);
+  sfx.bow();
+  hand.swing();
+  if (net?.mode === 'host') {
+    mobs.spawnPlayerArrow(eye, vel, charge);
+  } else {
+    net.clientSend({ t: 'playerArrow', x: eye.x, y: eye.y, z: eye.z, vx: vel.x, vy: vel.y, vz: vel.z, dmg: Math.round(2 + charge * 5) });
+  }
+}
+
 function doBreak(hit) {
   const bl = BLOCKS[hit.id];
   if (!bl?.breakable) {
@@ -796,6 +957,7 @@ function doBreak(hit) {
   world.setBlock(hit.x, hit.y, hit.z, B.AIR);
   net?.sendEdit(hit.x, hit.y, hit.z, B.AIR);
   world.removeContainer(hit.x, hit.y, hit.z);
+  worldSimAfter(hit.x, hit.y, hit.z);
   sfx.break_(bl.sound);
   hand.swing();
   particles?.burst(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, tileColors(hit.id), 18, 3);
@@ -866,13 +1028,26 @@ document.addEventListener('mousedown', (e) => {
       }
     }
   } else if (e.button === 2) {
+    const held = inventory.held();
+    if (held && held.id === I.BOW && inventory.countOf(I.ARROW) > 0) {
+      bowCharging = performance.now();
+      return;
+    }
     holdBtn = 2;
     doAction(2);
     nextActionAt = performance.now() + 270;
   }
 });
 
-document.addEventListener('mouseup', () => { holdBtn = null; player && (player.mining = null); });
+document.addEventListener('mouseup', (e) => {
+  if (bowCharging && e.button === 2) {
+    const charge = Math.min(1, (performance.now() - bowCharging) / 1100);
+    bowCharging = 0;
+    fireArrow(charge);
+  }
+  holdBtn = null;
+  player && (player.mining = null);
+});
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('wheel', (e) => {
@@ -913,6 +1088,8 @@ window.addEventListener('keydown', (e) => {
     }
     return;
   }
+
+  if (bowCharging) { bowCharging = 0; } // opening chat cancels a charged bow
 
   const action = settings.actionFor(e.code);
 
@@ -1033,6 +1210,7 @@ function hostSave(force) {
     time: sky.getTime(),
     pos: [player.pos.x, player.pos.y, player.pos.z],
     yaw: player.yaw,
+    bedSpawn: player.bedSpawn ?? null,
     containers: world.serializeContainers(),
     inv: inventory.serialize(),
     stats: { hp: stats.hp, hunger: stats.hunger, air: stats.air },
@@ -1097,6 +1275,7 @@ function animate() {
       step -= h;
     }
 
+    stats.armorPoints = inventory.armorPoints();
     stats.update(dt, player, actions.size > 0);
 
     // splash + steps
@@ -1124,6 +1303,11 @@ function animate() {
       camera.fov += (targetFov - camera.fov) * Math.min(1, 8 * dt);
       camera.updateProjectionMatrix();
     }
+    hurtTilt *= Math.max(0, 1 - 6 * dt);
+    camera.rotation.z += hurtTilt;
+    // low-health pulse
+    document.getElementById('vignette').style.opacity =
+      (myGamemode !== 'creative' && stats.hp <= 6 && !stats.dead) ? (0.55 + 0.45 * Math.sin(now / 150)) : 1;
 
     // targeting + mining
     const hit = player.raycast();
@@ -1198,6 +1382,15 @@ function animate() {
       }
     }
 
+    // held item + arm respond to local light
+    if (hand && lighting) {
+      const eye = camera.position;
+      const skyL = lighting.getSky(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z)) / 15;
+      const blk = [0, 0, 0];
+      lighting.getBlockRGB(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z), blk);
+      hand.setLight(Math.max(blk[0], Math.max(blk[1], blk[2])), skyL * sky.dayFactor, sky.dayFactor);
+    }
+
     drops.update(dt);
     drops.interpolate(dt);
 
@@ -1210,6 +1403,20 @@ function animate() {
     if (weather.state === 'rain' && weather.enabled && !stats.dead) sfx.startRain();
     else sfx.stopRain();
     particles.update(dt, world);
+
+    // host simulations: flowing water, gravity blocks, random ticks, arrows
+    if (net?.mode === 'host') {
+      waterSim.tick();
+      worldtick.processFallChecks();
+      const players = [{ id: 0, pos: player.pos, gm: myGamemode }];
+      for (const [id, p] of net.players) {
+        if (id !== 0 && p.pos) players.push({ id, pos: new THREE.Vector3(p.pos.x, p.pos.y, p.pos.z), gm: p.pos.gm ?? world.gamemode });
+      }
+      worldtick.growTicks(dt);
+      mobs.updateArrows(dt, players, (pid, dmg, kx, kz) => onMobAttackPlayer(pid, dmg, kx, kz, 'a skeleton'));
+    } else {
+      mobs.updateArrows(dt, [], null);
+    }
     hand.update(dt, Math.hypot(player.vel.x, player.vel.z), player.onGround);
 
     // item pickup
@@ -1253,10 +1460,11 @@ function animate() {
       if (now - lastEntitySync > 300) {
         lastEntitySync = now;
         const ms = mobs.states();
-        const msStr = JSON.stringify(ms);
+        const arrows = mobs.arrowStates();
+        const msStr = JSON.stringify([ms, arrows]);
         if (msStr !== lastMobSync) {
           lastMobSync = msStr;
-          net.hostMobs(ms);
+          net.hostMobs(ms, arrows);
         }
         const allDrops = drops.states();
         const ds = allDrops.length > 80 ? allDrops.slice(0, 80) : allDrops;
@@ -1269,7 +1477,7 @@ function animate() {
     }
 
     // HUD
-    hud.updateStats(stats, myGamemode);
+    hud.updateStats(stats, myGamemode, inventory.armorPoints());
     hud.updateHotbar(inventory, inventory.selected);
 
     // network position sync @10Hz

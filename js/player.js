@@ -10,6 +10,7 @@ import { moveEntity, liquidAt } from './physics.js';
 const HALF_W = 0.3;
 const P_HEIGHT = 1.8;
 const EYE = 1.62;
+const EYE_SNEAK = 1.47;
 const GRAVITY = 26;
 const JUMP_VEL = 8.4;
 const TERMINAL = -42;
@@ -73,6 +74,7 @@ export class Player {
     const fwd = (actions.has('forward') ? 1 : 0) - (actions.has('back') ? 1 : 0);
     const strafe = (actions.has('right') ? 1 : 0) - (actions.has('left') ? 1 : 0);
     this.sprinting = actions.has('sprint') && fwd > 0;
+    this.sneaking = !this.fly && actions.has('flyDown');
 
     const feetLiquid = liquidAt(this.world, this.pos.x, this.pos.y + 0.1, this.pos.z);
     const midLiquid = liquidAt(this.world, this.pos.x, this.pos.y + 0.9, this.pos.z);
@@ -90,7 +92,7 @@ export class Player {
     if (this.fly) speed = this.sprinting ? 17 : 10.5;
     else if (this.inWater) speed = 3.2;
     else if (this.inLava) speed = 1.6;
-    else speed = this.sprinting ? 6.8 : 4.35;
+    else speed = this.sneaking ? 1.4 : (this.sprinting ? 6.8 : 4.35);
 
     const accel = this.onGround || this.fly ? 42 : 14;
     this.vel.x = approach(this.vel.x, wx * speed, accel * dt);
@@ -116,7 +118,16 @@ export class Player {
       }
     }
 
+    const wasOnGround = this.onGround;
+    const px0 = this.pos.x, pz0 = this.pos.z;
     const flags = moveEntity(this.world, this, this.vel.x * dt, this.vel.y * dt, this.vel.z * dt, HALF_W, P_HEIGHT);
+
+    // sneaking edge guard: refuse movement that would leave support
+    if (this.sneaking && wasOnGround && !this.onGround && this.vel.y <= 0) {
+      if (px0 !== this.pos.x) { this.pos.x = px0; this.vel.x = 0; }
+      if (pz0 !== this.pos.z) { this.pos.z = pz0; this.vel.z = 0; }
+      this.onGround = true;
+    }
 
     // ground snap: kill the airborne/on-ground flicker when skimming terrain
     if (!this.onGround && !this.fly && !this.inWater && this.vel.y <= 0.01 && this.vel.y > -3) {
@@ -160,7 +171,7 @@ export class Player {
   }
 
   eyePosition(out) {
-    return out.set(this.pos.x, this.pos.y + EYE, this.pos.z);
+    return out.set(this.pos.x, this.pos.y + (this.sneaking ? EYE_SNEAK : EYE), this.pos.z);
   }
 
   applyToCamera(camera) {

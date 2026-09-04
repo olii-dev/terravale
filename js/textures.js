@@ -554,6 +554,90 @@ const PAINTERS = {
     ctx.fillStyle = '#8a6a3f';
     ctx.fillRect(15, 9, 2, 8);
   },
+  sapling(ctx, rand) {
+    ctx.clearRect(0, 0, TILE, TILE);
+    // tiny trunk + leaf blob
+    ctx.fillStyle = '#6e5330';
+    ctx.fillRect(15, 22, 2, 10);
+    ctx.fillStyle = '#4a7a24';
+    ctx.fillRect(10, 10, 12, 12);
+    ctx.fillStyle = '#5e9633';
+    ctx.fillRect(12, 8, 8, 6);
+    ctx.fillStyle = '#38611a';
+    ctx.fillRect(10, 18, 12, 4);
+    ctx.fillStyle = '#6faa3e';
+    ctx.fillRect(13, 11, 3, 3);
+  },
+  farmland_top(ctx, rand) {
+    rampFill(ctx, rand, ['#4e3a20', '#5f4128', '#6e5330'], { octaves: 2 });
+    // wet furrow rows
+    for (let y = 0; y < TILE; y += 8) {
+      ctx.fillStyle = 'rgba(20,12,4,0.55)';
+      ctx.fillRect(0, y + 3, TILE, 2);
+    }
+  },
+  farmland_side(ctx, rand) {
+    PAINTERS.dirt(ctx, rand);
+    ctx.fillStyle = '#4e3a20';
+    ctx.fillRect(0, 0, TILE, 4);
+    for (let x = 0; x < TILE; x += 8) {
+      ctx.fillStyle = 'rgba(20,12,4,0.5)';
+      ctx.fillRect(x, 0, 4, 4);
+    }
+  },
+  wheat_0(ctx, rand) {
+    ctx.clearRect(0, 0, TILE, TILE);
+    ctx.fillStyle = '#5ea742';
+    for (const x of [6, 15, 24]) ctx.fillRect(x, 24, 2, 8);
+  },
+  wheat_1(ctx, rand) {
+    ctx.clearRect(0, 0, TILE, TILE);
+    ctx.fillStyle = '#6faa3e';
+    for (const x of [4, 11, 18, 25]) ctx.fillRect(x, 16, 2, 16);
+  },
+  wheat_2(ctx, rand) {
+    ctx.clearRect(0, 0, TILE, TILE);
+    ctx.fillStyle = '#8bb84a';
+    for (const x of [3, 9, 15, 21, 27]) ctx.fillRect(x, 8, 2, 24);
+    ctx.fillStyle = '#a8c455';
+    for (const x of [3, 15, 27]) ctx.fillRect(x + 1, 8, 2, 6);
+  },
+  wheat_3(ctx, rand) {
+    ctx.clearRect(0, 0, TILE, TILE);
+    // golden wheat with heads
+    for (const x of [3, 9, 15, 21, 27]) {
+      ctx.fillStyle = '#c9b44a';
+      ctx.fillRect(x, 6, 2, 26);
+      ctx.fillStyle = '#e0c565';
+      ctx.fillRect(x - 1, 4, 4, 6);
+      ctx.fillStyle = '#b39342';
+      ctx.fillRect(x, 14, 2, 4);
+    }
+  },
+  bed_top(ctx, rand) {
+    // red blanket with white pillow
+    ctx.fillStyle = '#8a2c2c';
+    ctx.fillRect(0, 12, TILE, TILE - 12);
+    ctx.fillStyle = '#a83a3a';
+    ctx.fillRect(0, 12, TILE, 2);
+    ctx.fillStyle = '#e9ecec';
+    ctx.fillRect(0, 0, TILE, 12);
+    ctx.fillStyle = '#cdd3d6';
+    ctx.fillRect(0, 10, TILE, 2);
+    for (let i = 0; i < 30; i++) {
+      ctx.fillStyle = Math.random() < 0.5 ? '#dbe2e6' : '#f6f9fb';
+      ctx.fillRect(Math.floor(Math.random() * TILE), Math.floor(Math.random() * 12), 2, 1);
+    }
+  },
+  bed_side(ctx, rand) {
+    PAINTERS.planks('#a07847', '#6e4d2c')(ctx, rand);
+    ctx.fillStyle = '#8a2c2c';
+    ctx.fillRect(0, 0, TILE, 10);
+    ctx.fillStyle = '#e9ecec';
+    ctx.fillRect(0, 0, 10, 10);
+    ctx.fillStyle = '#a83a3a';
+    ctx.fillRect(0, 8, TILE, 2);
+  },
   pumpkin_side(ctx, rand) {
     rampFill(ctx, rand, ['#c4691e', '#d97b2a', '#e8913f'], { octaves: 2 });
     for (const x of [0, 8, 16, 24]) {

@@ -3,7 +3,7 @@
 // left-right mirrored pattern. Shapeless recipes match multisets.
 
 import { B } from './blocks.js';
-import { I, toolId, stack } from './items.js';
+import { I, toolId, stack, hoeId, armorId } from './items.js';
 
 const PLANKS = [B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS];
 const LOGS = [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG];
@@ -50,6 +50,44 @@ for (let tier = 0; tier < 5; tier++) {
   R.push(shaped(stack(toolId('axe', tier)), [[M, M], [M, S], [0, S]]));
   R.push(shaped(stack(toolId('shovel', tier)), [[M], [S], [S]]));
   R.push(shaped(stack(toolId('sword', tier)), [[M], [M], [S]]));
+}
+
+// round 4: farming, combat, beds
+R.push(shaped(stack(I.BREAD), [[I.WHEAT, I.WHEAT, I.WHEAT]]));
+
+// hoe per tier: MM / .S / .S
+for (let tier = 0; tier < 5; tier++) {
+  const M = MATS[tier], S = I.STICK;
+  R.push(shaped(stack(hoeId(tier)), [[M, M], [0, S], [0, S]]));
+}
+
+// bow + arrows
+R.push(shaped(stack(I.BOW), [[0, I.STICK, I.STRING], [I.STICK, 0, I.STRING], [0, I.STICK, I.STRING]]));
+R.push(shaped(stack(I.ARROW, 4), [[I.FLINT], [I.STICK], [I.FEATHER]]));
+
+// bucket
+R.push(shaped(stack(I.BUCKET), [[102, 0, 102], [0, 102, 0]]));
+
+// bed: wool over planks
+R.push(shaped(stack(I.BED_ITEM), [
+  [B.WOOL_WHITE, B.WOOL_WHITE, B.WOOL_WHITE],
+  [B.OAK_PLANKS, B.OAK_PLANKS, B.OAK_PLANKS],
+]));
+
+// armor: 4 slots x 4 tiers (leather..diamond)
+const AMATS = [B.WOOL_BROWN /* leather substitute */, 102, 103, 104];
+const APAT = {
+  0: [[1, 1, 1], [1, 0, 1]],                      // helmet
+  1: [[1, 0, 1], [1, 1, 1], [1, 1, 1]],           // chestplate
+  2: [[1, 1, 1], [1, 0, 1], [1, 0, 1]],           // leggings
+  3: [[1, 0, 1], [1, 0, 1]],                      // boots
+};
+for (let tier = 0; tier < 4; tier++) {
+  const M = AMATS[tier];
+  for (let slot = 0; slot < 4; slot++) {
+    const rows = APAT[slot].map(row => row.map(c => (c === 0 ? 0 : M)));
+    R.push(shaped(stack(armorId(slot, tier)), rows));
+  }
 }
 
 // mineral blocks and unpacking
