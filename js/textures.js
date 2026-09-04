@@ -553,6 +553,24 @@ const PAINTERS = {
     ctx.fillStyle = '#8a6a3f';
     ctx.fillRect(15, 9, 2, 8);
   },
+  door_lower(ctx, rand) {
+    PAINTERS.planks('#a07847', '#6e4d2c')(ctx, rand);
+    // panel inset + handle
+    ctx.strokeStyle = '#5c4022'; ctx.lineWidth = 2;
+    ctx.strokeRect(4, 4, TILE - 8, TILE - 8);
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(TILE - 8, TILE / 2 - 1, 3, 3);
+  },
+  door_upper(ctx, rand) {
+    PAINTERS.planks('#a07847', '#6e4d2c')(ctx, rand);
+    ctx.strokeStyle = '#5c4022'; ctx.lineWidth = 2;
+    ctx.strokeRect(4, 4, TILE - 8, TILE - 8);
+    // window
+    ctx.fillStyle = '#a8d8e8';
+    ctx.fillRect(7, 7, 8, 8);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillRect(8, 8, 3, 3);
+  },
   sapling(ctx, rand) {
     ctx.clearRect(0, 0, TILE, TILE);
     // tiny trunk + leaf blob

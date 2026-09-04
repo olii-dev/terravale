@@ -620,15 +620,9 @@ export class UI {
 
   slotClick(zone, idx, button, shift, fakeStack) {
     if (zone === 'creative') {
-      // palette: left click grabs a full stack; shift-click puts it away
+      // palette: one click = a full stack straight into the selected hotbar slot
       const full = { id: idx, count: maxStack(idx) };
-      if (shift) {
-        this.playerInv.add(full);
-      } else if (!this.cursorStack) {
-        this.cursorStack = full;
-      } else if (canMerge(this.cursorStack, full)) {
-        this.cursorStack.count = Math.min(maxStack(idx), this.cursorStack.count + maxStack(idx));
-      }
+      this.playerInv.slots[this.playerInv.selected] = full;
       this.renderScreen();
       this.cb.onInventoryChange();
       return;
