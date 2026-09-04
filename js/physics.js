@@ -1,7 +1,7 @@
 // Shared voxel collision for players, mobs and item drops: integrate one
 // axis at a time and clamp against overlapping solid cells.
 
-import { isSolid, isLiquid, B } from './blocks.js';
+import { isSolid, isLiquid, B, blockHeight } from './blocks.js';
 import { isWater } from './blocks.js';
 
 // entity: { pos: Vector3 (feet center), vel: Vector3, onGround }
@@ -22,7 +22,11 @@ export function moveEntity(world, entity, dx, dy, dz, halfW, height) {
     for (let bx = x0; bx <= x1; bx++) {
       for (let by = y0; by <= y1; by++) {
         for (let bz = z0; bz <= z1; bz++) {
-          if (!isSolid(world.getBlock(bx, by, bz))) continue;
+          const cellId = world.getBlock(bx, by, bz);
+          if (!isSolid(cellId)) continue;
+          // bottom slabs only block the lower half
+          const h = blockHeight(cellId);
+          if (h < 1 && entity.pos.y >= by + h - 0.01) continue;
           if (axis === 'x') {
             entity.pos.x = delta > 0 ? bx - halfW - 1e-4 : bx + 1 + halfW + 1e-4;
             entity.vel.x = 0;
@@ -35,7 +39,7 @@ export function moveEntity(world, entity, dx, dy, dz, halfW, height) {
             if (delta > 0) {
               entity.pos.y = by - height - 1e-4;
             } else {
-              entity.pos.y = by + 1 + 1e-4;
+              entity.pos.y = by + blockHeight(cellId) + 1e-4;
               entity.onGround = true;
               flags.landed = true;
             }

@@ -3,7 +3,7 @@
 // fall tracking for damage, swimming, auto-jump.
 
 import * as THREE from 'three';
-import { BLOCKS, isSolid, isWater, isLiquid, B } from './blocks.js';
+import { BLOCKS, isSolid, isWater, isLiquid, B, blockHeight } from './blocks.js';
 import { breakTime, canHarvest } from './items.js';
 import { moveEntity, liquidAt } from './physics.js';
 

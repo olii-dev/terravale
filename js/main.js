@@ -3,7 +3,7 @@
 // saves and the P2P network.
 
 import * as THREE from 'three';
-import { B, BLOCKS, isReplaceable, isCross, dropsFor, waterLevel, waterBlockForLevel, isWater as isWaterId } from './blocks.js';
+import { B, BLOCKS, isReplaceable, isCross, dropsFor, waterLevel, waterBlockForLevel, isWater as isWaterId, stairsFacing } from './blocks.js';
 import { buildAtlas, TILE_INDEX, getCrackTextures } from './textures.js';
 import { resolveFaceTiles } from './blocks.js';
 import { World, HEIGHT } from './world.js';
@@ -981,6 +981,12 @@ function tryLightPortal(hit) {
     net?.sendEdit(x, y, z, B.NETHER_PORTAL);
   }
   return true;
+}
+
+// yaw → stair facing index (N 0, E 1, S 2, W 3): high half faces away
+function facingFromDir(dirX, dirZ) {
+  if (Math.abs(dirX) > Math.abs(dirZ)) return dirX > 0 ? 1 : 3;
+  return dirZ > 0 ? 2 : 0;
 }
 
 function trySleep(hit) {

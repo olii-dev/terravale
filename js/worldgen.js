@@ -95,6 +95,7 @@ export function createWorldgen(seed) {
       return B.AIR;
     }
     // ore-ish variety in the rock
+    if (y < 22 && f > 0.8) return B.ANCIENT_DEBRIS;
     if (f > 0.78 && y < 45) return B.QUARTZ_BLOCK;
     if (f > 0.72 && f < 0.75 && y < 38) return B.SOUL_SAND;
     return B.NETHERRACK;

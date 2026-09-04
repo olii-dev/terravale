@@ -112,6 +112,23 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
         const bl = BLOCKS[id];
         const tint = TINTED_BLOCKS.has(id) ? BIOME_TINTS[biomes[z * CHUNK + x]] : null;
 
+        if (bl.shape) {
+          // partial boxes: slabs (bottom/top) and stairs (slab + upper half-box)
+          const tint2 = TINTED_BLOCKS.has(id) ? BIOME_TINTS[biomes[z * CHUNK + x]] : null;
+          if (bl.shape === 'slab') {
+            emitBox(opaque, x, y, z, 0, 0, 0, 1, 0.5, 1, bl.faceTiles, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), tint2);
+          } else if (bl.shape === 'slabtop') {
+            emitBox(opaque, x, y, z, 0, 0.5, 0, 1, 1, 1, bl.faceTiles, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), tint2);
+          } else {
+            // stairs: facing N/E/S/W — high half on that side
+            const facing = (id - B.STAIRS_STONE_N + 4) % 8 < 4 ? id - B.STAIRS_STONE_N : id - B.STAIRS_OAK_N;
+            emitBox(opaque, x, y, z, 0, 0, 0, 1, 0.5, 1, bl.faceTiles, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), tint2);
+            const hi = [[0, 0.5, 0, 1, 1, 0.5], [0.5, 0.5, 0, 1, 1, 1], [0, 0.5, 0.5, 1, 1, 1], [0, 0.5, 0.5, 0.5, 1, 1]][facing];
+            emitBox(opaque, x, y, z, hi[0], hi[1], hi[2], hi[3], hi[4], hi[5], bl.faceTiles, skyAt(x, y, z) / 15, blockAtL(x, y, z, blkScratch), tint2);
+          }
+          continue;
+        }
+
         if (bl.cross) {
           // only plants sway; torches and other crosses stay still
           const bucket = bl.plant ? flora : cutout;
@@ -141,9 +158,10 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
           let uvs = [
             [rect[0], rect[1]], [rect[2], rect[1]], [rect[2], rect[3]], [rect[0], rect[3]],
           ];
-          if (bucket === opaque) {
-            // deterministic per-face rotation: same texture, different orientation
-            const h = ((x * 7 + y * 13 + z * 17 + f * 5) >>> 0) % 4;
+          if (bucket === opaque && (f === 2 || f === 3)) {
+            // anti-tiling rotation on TOP/BOTTOM faces only — side textures
+            // (grass edges, log grain) are directional and must not rotate
+            const h = ((x * 7 + y * 13 + z * 17) >>> 0) % 4;
             uvs = rotateUV(uvs, h);
           }
 
@@ -188,6 +206,43 @@ export function buildChunkGeometry(world, lighting, cx, cz) {
     flora: bucketToGeometry(flora),
     water: bucketToGeometry(water),
   };
+}
+
+// six faces of an arbitrary box inside the cell; UVs crop vertically for
+// partial-height faces; light is the cell's own (flat)
+function emitBox(bucket, x, y, z, x0, y0, z0, x1, y1, z1, tiles, sky, blkL, tint) {
+  const ex = x1 - x0, ey = y1 - y0, ez = z1 - z0;
+  const tileFor = [tiles[0], tiles[1], tiles[2], tiles[3], tiles[4], tiles[5]];
+  for (let f = 0; f < 6; f++) {
+    const face = FACES[f];
+    const rect = uvRect(tileFor[f]);
+    const verts = [];
+    const uvs = [];
+    const colors = [];
+    for (let i = 0; i < 4; i++) {
+      const v = face.v[i];
+      verts.push([x + x0 + v[0] * ex, y + y0 + v[1] * ey, z + z0 + v[2] * ez]);
+      // uv crop: sides of partial-height boxes show the matching slice
+      const uf = face.n[0] !== 0 ? v[2] : v[0];
+      const vf = face.n[1] !== 0 ? v[2] : v[1];
+      uvs.push([rect[0] + (rect[2] - rect[0]) * uf, rect[1] + (rect[3] - rect[1]) * vf]);
+      const tc = tint && f === 2 ? tint : null;
+      const s = face.shade;
+      colors.push(s * (tc ? tc[0] : 1), s * (tc ? tc[1] : 1), s * (tc ? tc[2] : 1));
+    }
+    const uvs2 = [
+      [rect[0], rect[1]], [rect[2], rect[1]], [rect[2], rect[3]], [rect[0], rect[3]],
+    ];
+    // blend the cropped v for side faces (vertical extent), keep full u
+    for (let i = 0; i < 4; i++) {
+      if (f !== 2 && f !== 3) {
+        const vf = face.v[i][1] === 1 ? 1 : (y0 > 0 ? 0 : (y1 < 1 ? (ey / 1) : 1));
+        const yFrac = y0 + (face.v[i][1] === 1 ? ey : 0);
+        uvs2[i][1] = rect[1] + (rect[3] - rect[1]) * Math.min(1, yFrac);
+      }
+    }
+    pushQuad(bucket, verts, uvs2, colors, [sky, sky, sky, sky], [blkL[0], blkL[1], blkL[2], blkL[0], blkL[1], blkL[2], blkL[0], blkL[1], blkL[2], blkL[0], blkL[1], blkL[2]], false);
+  }
 }
 
 // per-corner AO + smooth light: sample the face-adjacent cell, the two edge

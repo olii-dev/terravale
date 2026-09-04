@@ -93,6 +93,32 @@ for (let tier = 0; tier < 4; tier++) {
   }
 }
 
+// netherite
+R.push(shaped(stack(I.NETHERITE_INGOT), [
+  [I.NETHERITE_SCRAP, I.NETHERITE_SCRAP, I.NETHERITE_SCRAP],
+  [I.NETHERITE_SCRAP, I.NETHERITE_SCRAP, I.NETHERITE_SCRAP],
+  [I.NETHERITE_SCRAP, I.NETHERITE_SCRAP, I.NETHERITE_SCRAP],
+]));
+// netherite gear (ingot + stick patterns)
+const NI = I.NETHERITE_INGOT, NS = I.STICK;
+R.push(shaped(stack(270), [[NI], [NI], [0, NS, 0]]));           // hmm sword shape wrong — fixed below
+R.pop();
+R.push(shaped(stack(270), [[NI], [NI], [NS]]));                 // sword
+R.push(shaped(stack(271), [[NI, NI, NI], [0, NS, 0], [0, NS, 0]])); // pickaxe
+R.push(shaped(stack(272), [[NI, NI], [NI, NS], [0, NS]]));      // axe
+R.push(shaped(stack(273), [[NI], [NS], [NS]]));                 // shovel
+R.push(shaped(stack(274), [[NI, NI], [0, NS], [0, NS]]));       // hoe
+// netherite armor
+R.push(shaped(stack(244), [[NI, NI, NI], [NI, 0, NI]]));
+R.push(shaped(stack(249), [[NI, 0, NI], [NI, NI, NI], [NI, NI, NI]]));
+R.push(shaped(stack(254), [[NI, NI, NI], [NI, 0, NI], [NI, 0, NI]]));
+R.push(shaped(stack(259), [[NI, 0, NI], [NI, 0, NI]]));
+// slabs and stairs
+R.push(shaped(stack(B.STONE_SLAB_B, 6), [[B.STONE, B.STONE, B.STONE]]));
+R.push(shaped(stack(B.OAK_SLAB_B, 6), [[B.OAK_PLANKS, B.OAK_PLANKS, B.OAK_PLANKS]]));
+R.push(shaped(stack(B.STAIRS_STONE_N, 4), [[B.STONE, B.STONE, B.STONE], [B.STONE, 0, B.STONE], [B.STONE, 0, B.STONE]]));
+R.push(shaped(stack(B.STAIRS_OAK_N, 4), [[B.OAK_PLANKS, B.OAK_PLANKS, B.OAK_PLANKS], [B.OAK_PLANKS, 0, B.OAK_PLANKS], [B.OAK_PLANKS, 0, B.OAK_PLANKS]]));
+
 // mineral blocks and unpacking
 const MINERAL_9 = [
   [I.COAL, B.COAL_BLOCK],

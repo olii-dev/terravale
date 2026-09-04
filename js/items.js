@@ -7,10 +7,10 @@ import { I } from './blocks.js';
 export { I };
 
 export const TOOL_CLASSES = ['pickaxe', 'axe', 'shovel', 'sword'];
-export const TIER_NAMES = ['Wooden', 'Stone', 'Iron', 'Golden', 'Diamond'];
-export const TIER_KEYS = ['wood', 'stone', 'iron', 'gold', 'diamond'];
-export const TIER_SPEED = [2, 4, 6, 12, 8];
-export const TIER_DURABILITY = [60, 132, 251, 33, 1562];
+export const TIER_NAMES = ['Wooden', 'Stone', 'Iron', 'Golden', 'Diamond', 'Netherite'];
+export const TIER_KEYS = ['wood', 'stone', 'iron', 'gold', 'diamond', 'netherite'];
+export const TIER_SPEED = [2, 4, 6, 12, 8, 9];
+export const TIER_DURABILITY = [60, 132, 251, 33, 1562, 2031];
 export const TIER_MATERIAL = [B.OAK_PLANKS, B.COBBLE, 102, 103, 104]; // matches I ids below
 
 export const ITEMS = {};
@@ -53,6 +53,8 @@ defItem(I.BOW, 'Bow', { maxDur: 384, damage: 1 });
 defItem(I.ARROW, 'Arrow', {});
 defItem(I.BED_ITEM, 'Bed', {});
 defItem(I.FLINT_AND_STEEL, 'Flint and steel', { maxDur: 64 });
+defItem(I.NETHERITE_SCRAP, 'Netherite scrap', {});
+defItem(I.NETHERITE_INGOT, 'Netherite ingot', {});
 
 // armor: 140 + slot*5 + tier (slots 0 head, 1 chest, 2 legs, 3 feet)
 export const ARMOR_SLOTS = ['head', 'chest', 'legs', 'feet'];
@@ -74,6 +76,19 @@ for (let slot = 0; slot < 4; slot++) {
     });
   }
 }
+// netherite tools: 270-274 (sword, pickaxe, axe, shovel, hoe) — own range
+const NT_DMG = [8, 2, 2, 2, 2];
+defItem(270, 'Netherite sword', { tool: { cls: 'sword', tier: 5 }, maxDur: 2031, damage: 8 });
+defItem(271, 'Netherite pickaxe', { tool: { cls: 'pickaxe', tier: 5 }, maxDur: 2031, damage: 5 });
+defItem(272, 'Netherite axe', { tool: { cls: 'axe', tier: 5 }, maxDur: 2031, damage: 6 });
+defItem(273, 'Netherite shovel', { tool: { cls: 'shovel', tier: 5 }, maxDur: 2031, damage: 5 });
+defItem(274, 'Netherite hoe', { tool: { cls: 'hoe', tier: 5 }, maxDur: 2031, damage: 2 });
+// netherite armor: 244, 249, 254, 259 (slot*5 + tier 4)
+defItem(244, 'Netherite Cap', { armor: { slot: 0, tier: 4, points: 3 }, maxDur: 600 });
+defItem(249, 'Netherite Tunic', { armor: { slot: 1, tier: 4, points: 8 }, maxDur: 600 });
+defItem(254, 'Netherite Pants', { armor: { slot: 2, tier: 4, points: 6 }, maxDur: 600 });
+defItem(259, 'Netherite Boots', { armor: { slot: 3, tier: 4, points: 3 }, maxDur: 600 });
+
 export function armorId(slot, tier) { return I.ARMOR_BASE + slot * 5 + tier; }
 export const isBlockItemId = (id) => id > 0 && id < 200;
 export function armorOf(id) { return ITEMS[id]?.armor ?? null; }
@@ -180,6 +195,7 @@ export const SMELT = new Map([
   [B.COBBLE, () => stack(B.STONE)],
   [B.CLAY, () => stack(B.BRICKS)],
   [106, () => stack(107)],
+  [122, () => stack(I.NETHERITE_SCRAP)], // ancient debris -> netherite scrap
 ]);
 
 export function smeltOf(id) {

@@ -108,7 +108,28 @@ export const B = {
   WARPED_STEM: 107,
   WARPED_PLANKS: 108,
   NETHER_PORTAL: 109,
+  STONE_SLAB_B: 110,
+  STONE_SLAB_T: 111,
+  OAK_SLAB_B: 112,
+  OAK_SLAB_T: 113,
+  STAIRS_STONE_N: 114,
+  STAIRS_STONE_E: 115,
+  STAIRS_STONE_S: 116,
+  STAIRS_STONE_W: 117,
+  STAIRS_OAK_N: 118,
+  STAIRS_OAK_E: 119,
+  STAIRS_OAK_S: 120,
+  STAIRS_OAK_W: 121,
+  ANCIENT_DEBRIS: 122,
 };
+
+// slab/stair helpers
+export const SLAB_B = new Set([B.STONE_SLAB_B, B.OAK_SLAB_B]);
+export function stairsFacing(id) {
+  if (id >= B.STAIRS_STONE_N && id <= B.STAIRS_STONE_W) return id - B.STAIRS_STONE_N;
+  if (id >= B.STAIRS_OAK_N && id <= B.STAIRS_OAK_W) return id - B.STAIRS_OAK_N;
+  return -1;
+}
 
 // flowing-water helpers: every water-ish id maps to a level 0..7 (0 = source)
 export const WATER_IDS = new Set([B.WATER]);
@@ -151,6 +172,8 @@ export const I = {
   ARROW: 232,
   BED_ITEM: 233,
   FLINT_AND_STEEL: 234,
+  NETHERITE_SCRAP: 238,
+  NETHERITE_INGOT: 239,
   ARMOR_BASE: 240, // 240 + slot*5 + tier; slots: head/chest/legs/feet, tiers leather..diamond
   HOE_BASE: 260,   // 260 + tier (wooden..diamond hoe)
 };
@@ -292,6 +315,25 @@ def(B.CRIMSON_PLANKS, 'Crimson planks', { all: 'crimson_planks', sound: 'wood', 
 def(B.WARPED_STEM, 'Warped stem', { side: 'warped_stem_side', top: 'warped_stem_top', bottom: 'warped_stem_top', sound: 'wood', hardness: 2, tool: 'axe' });
 def(B.WARPED_PLANKS, 'Warped planks', { all: 'warped_planks', sound: 'wood', hardness: 2, tool: 'axe' });
 def(B.NETHER_PORTAL, 'Nether portal', { all: 'portal', solid: false, opaque: false, water: true, hardness: 1e9, breakable: false, light: 11, lightColor: [0.7, 0.25, 1.0] });
+def(B.STONE_SLAB_B, 'Stone slab', { all: 'stone', shape: 'slab', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.STONE_SLAB_T, 'Stone slab', { all: 'stone', shape: 'slabtop', hardness: 1.5, tool: 'pickaxe', needsTool: true, drops: () => [{ id: B.STONE_SLAB_B, count: 1 }] });
+def(B.OAK_SLAB_B, 'Oak slab', { all: 'oak_planks', shape: 'slab', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.OAK_SLAB_T, 'Oak slab', { all: 'oak_planks', shape: 'slabtop', sound: 'wood', hardness: 2, tool: 'axe', drops: () => [{ id: B.OAK_SLAB_B, count: 1 }] });
+def(B.STAIRS_STONE_N, 'Stone stairs', { all: 'stone', shape: 'stairs', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.STAIRS_STONE_E, 'Stone stairs', { all: 'stone', shape: 'stairs', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.STAIRS_STONE_S, 'Stone stairs', { all: 'stone', shape: 'stairs', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.STAIRS_STONE_W, 'Stone stairs', { all: 'stone', shape: 'stairs', hardness: 1.5, tool: 'pickaxe', needsTool: true });
+def(B.STAIRS_OAK_N, 'Oak stairs', { all: 'oak_planks', shape: 'stairs', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.STAIRS_OAK_E, 'Oak stairs', { all: 'oak_planks', shape: 'stairs', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.STAIRS_OAK_S, 'Oak stairs', { all: 'oak_planks', shape: 'stairs', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.STAIRS_OAK_W, 'Oak stairs', { all: 'oak_planks', shape: 'stairs', sound: 'wood', hardness: 2, tool: 'axe' });
+def(B.ANCIENT_DEBRIS, 'Ancient debris', { all: 'ancient_debris', hardness: 8, tool: 'pickaxe', needsTool: true, tier: 3 });
+
+// partial-block collision heights (bottom slabs are half height)
+export function blockHeight(id) {
+  if (id === B.STONE_SLAB_B || id === B.OAK_SLAB_B) return 0.5;
+  return 1;
+}
 
 // --- round 4: world feel + farming + beds ---
 for (const [tid, ox, oz] of [['N', 0, -0.32], ['E', 0.32, 0], ['S', 0, 0.32], ['W', -0.32, 0]]) {
@@ -319,6 +361,7 @@ for (const id of [B.COAL_ORE, B.IRON_ORE, B.GOLD_ORE, B.DIAMOND_ORE, B.COAL_BLOC
 BLOCKS[B.SANDSTONE].group = 'natural';
 for (const id of [B.ANDESITE, B.GRANITE, B.DIORITE, B.POLISHED_ANDESITE, B.POLISHED_GRANITE, B.POLISHED_DIORITE, B.SMOOTH_STONE, B.TERRACOTTA, B.NETHERRACK, B.SOUL_SAND, B.NETHER_BRICKS, B.MAGMA, B.QUARTZ_BLOCK, B.CRIMSON_STEM, B.CRIMSON_PLANKS, B.WARPED_STEM, B.WARPED_PLANKS]) BLOCKS[id].group = 'building';
 for (const id of [B.ICE, B.PACKED_ICE]) BLOCKS[id].group = 'natural';
+for (const id of [B.STONE_SLAB_B, B.STONE_SLAB_T, B.OAK_SLAB_B, B.OAK_SLAB_T, B.STAIRS_STONE_N, B.STAIRS_STONE_E, B.STAIRS_STONE_S, B.STAIRS_STONE_W, B.STAIRS_OAK_N, B.STAIRS_OAK_E, B.STAIRS_OAK_S, B.STAIRS_OAK_W]) BLOCKS[id].group = 'building';
 for (const id of [B.BRICKS, B.STONE_BRICKS, B.MOSSY_STONE_BRICKS, B.GLASS, B.OBSIDIAN, B.BOOKSHELF]) BLOCKS[id].group = 'building';
 for (const id of [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.OAK_LEAVES, B.BIRCH_LEAVES, B.SPRUCE_LEAVES, B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS]) BLOCKS[id].group = 'wood';
 

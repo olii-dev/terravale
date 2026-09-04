@@ -10,8 +10,8 @@ import { blockIcon, atlasCanvasEl, TILE_INDEX, TILE, ATLAS_COLS } from './textur
 
 const PIX = 2; // each art pixel is a 2×2 block
 
-const TIER_HEAD = ['#9a6b3a', '#8a8a8a', '#d8d8d8', '#f2d24a', '#5ee0d8'];
-const TIER_HEAD_DARK = ['#6e4a26', '#5c5c5c', '#a0a0a0', '#b8941f', '#3fc4bc'];
+const TIER_HEAD = ['#9a6b3a', '#8a8a8a', '#d8d8d8', '#f2d24a', '#5ee0d8', '#4a4a52'];
+const TIER_HEAD_DARK = ['#6e4a26', '#5c5c5c', '#a0a0a0', '#b8941f', '#3fc4bc', '#2e2e34'];
 const HANDLE = '#8a6a3f';
 const HANDLE_DARK = '#6e5330';
 
@@ -268,6 +268,16 @@ const ITEM_PAINTERS = {
     ctx.fillRect(9 * PIX, 10 * PIX, 4 * PIX, PIX);
     px(ctx, 9, 6, '#c9cdd0'); px(ctx, 13, 9, '#c9cdd0');
   },
+  [I.NETHERITE_SCRAP](ctx) { // scrap chunk
+    ctx.fillStyle = '#4a4a52';
+    ctx.fillRect(4 * PIX, 5 * PIX, 8 * PIX, 6 * PIX);
+    ctx.fillStyle = '#5e5e68';
+    ctx.fillRect(5 * PIX, 4 * PIX, 4 * PIX, 2 * PIX);
+    ctx.fillStyle = '#2e2e34';
+    ctx.fillRect(6 * PIX, 9 * PIX, 5 * PIX, 2 * PIX);
+    px(ctx, 5, 6, '#7a7a86');
+  },
+  [I.NETHERITE_INGOT](ctx) { ingot(ctx, '#6a6a76', '#3e3e46'); },
   [I.BED_ITEM](ctx) { // bed icon
     ctx.fillStyle = '#e9ecec';
     ctx.fillRect(2 * PIX, 6 * PIX, 5 * PIX, 6 * PIX);
@@ -281,7 +291,7 @@ const ITEM_PAINTERS = {
 
   ...(() => {
     const acc = {};
-    const TIER = [['#a86b4c', '#7e5236'], ['#d8d8d8', '#a0a0a0'], ['#f2d24a', '#b8941f'], ['#5ee0d8', '#3fc4bc']];
+    const TIER = [['#a86b4c', '#7e5236'], ['#d8d8d8', '#a0a0a0'], ['#f2d24a', '#b8941f'], ['#5ee0d8', '#3fc4bc'], ['#4a4a52', '#2e2e34']];
     const SIL = {
       0: (ctx, h, d) => { // helmet
         ctx.fillStyle = h; ctx.fillRect(3 * PIX, 4 * PIX, 10 * PIX, 6 * PIX);

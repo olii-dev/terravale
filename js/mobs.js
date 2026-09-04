@@ -14,6 +14,7 @@ export const MOB_TYPES = {
   cow: { hp: 10, speed: 1.5, hostile: false, w: 0.45, h: 1.25, drops: () => [stack(I.BEEF, 1 + Math.floor(Math.random() * 2)), stack(I.LEATHER, Math.random() < 0.6 ? 1 : 0).valueOf ? stack(I.LEATHER, 1) : null].filter(Boolean) },
   chicken: { hp: 4, speed: 1.8, hostile: false, w: 0.22, h: 0.7, drops: () => [stack(I.CHICKEN_RAW, 1), stack(I.FEATHER, Math.random() < 0.7 ? 1 : 0)].filter(s => s.count > 0) },
   skeleton: { hp: 18, speed: 2.5, hostile: true, w: 0.3, h: 1.9, dmg: 0, ranged: true, drops: () => [stack(I.ARROW, Math.floor(Math.random() * 3)), stack(I.FLINT, Math.random() < 0.3 ? 1 : 0)].filter(s => s.count > 0) },
+  piglin: { hp: 22, speed: 3.0, hostile: false, w: 0.3, h: 1.9, dmg: 4, drops: () => [stack(I.RAW_MEAT, 1), stack(203, Math.random() < 0.3 ? 1 : 0)].filter(s => s.count > 0) },
 };
 export const MOB_NAMES = Object.keys(MOB_TYPES);
 
@@ -336,9 +337,11 @@ export class Mobs {
     m.vel.x += kx * 6;
     m.vel.z += kz * 6;
     m.vel.y = Math.max(m.vel.y, 4);
-    // passives flee from the attacker direction
+    // passives flee; piglins get angry instead
     const t = MOB_TYPES[m.type];
-    if (!t.hostile) {
+    if (m.type === 'piglin') {
+      m.angerT = 25;
+    } else if (!t.hostile) {
       m.fleeT = 4;
       m.fleeFrom = new THREE.Vector3(m.pos.x - kx, m.pos.y, m.pos.z - kz);
     }
@@ -502,7 +505,14 @@ export class Mobs {
       }
     }
 
-    if (this.difficulty !== 'peaceful' && hostile < 12) {
+    const playerInNether = players.some((p) => p.pos.x >= 1000000);
+    if (playerInNether && list.filter((m) => m.type === 'piglin').length < 6) {
+      const { x, z, h } = spot(14, 36);
+      const below = this.world.getBlock(x, h, z);
+      if (below === B.NETHERRACK) this.spawn('piglin', x + 0.5, h + 1.5, z + 0.5);
+    }
+
+    if (this.difficulty !== 'peaceful' && hostile < 12 && !playerInNether) {
       const { x, z, h } = spot(18, 40);
       const y = h + 1;
       const sky = this.lighting ? this.lighting.getSky(x, y, z) : 15;
@@ -564,6 +574,9 @@ export class Mobs {
     else if (mob.type === 'chicken') {
       rig = buildQuadruped('#f0f0f0', '#f0f0f0', '#e0b24a', false);
       rig.group.scale.setScalar(0.55);
+    } else if (mob.type === 'piglin') {
+      rig = buildGloomer();
+      for (const m of rig.mats) { m.color.set('#e0a0a0'); m.userData.base0 = m.color.clone(); }
     } else if (mob.type === 'skeleton') {
       rig = buildGloomer();
       // bone-white palette
