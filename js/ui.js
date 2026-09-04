@@ -44,7 +44,7 @@ export class UI {
       pauseMeta: $('pause-meta'),
       debug: $('debug'), hudCode: $('hud-code'), hudRole: $('hud-role'),
       playerList: $('player-list'), toasts: $('toasts'),
-      screenTitle: $('screen-title'), containerArea: $('container-area'),
+      screenTitle: $('screen-title'), containerArea: $('container-area'), screenPanel: $('screen-panel'),
       invGrid: $('player-inv-grid'), hotbarGrid: $('player-hotbar-grid'),
       cursor: $('cursor-stack'), tooltip: $('tooltip'),
       chatLog: $('chat'),
